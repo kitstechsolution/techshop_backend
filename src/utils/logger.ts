@@ -8,10 +8,6 @@ class Logger {
   }
 
   private log(level: LogLevel, message: string, ...args: unknown[]): void {
-    if (!this.isDevelopment) {
-      return;
-    }
-
     const timestamp = new Date().toISOString();
     const formattedMessage = `[${timestamp}] ${level.toUpperCase()}: ${message}`;
 

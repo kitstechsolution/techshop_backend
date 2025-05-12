@@ -46,17 +46,37 @@ export const adminAuth = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    await auth(req, res, () => {
-      // Empty callback for auth middleware
-    });
+    // Extract token verification logic instead of calling auth middleware
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+
+    if (!token) {
+      res.status(401).json({ error: 'Please authenticate.' });
+      return;
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const user = await User.findOne({ _id: decoded._id });
+
+    if (!user) {
+      res.status(401).json({ error: 'Please authenticate.' });
+      return;
+    }
+
+    req.user = user;
     
-    if (!req.user || req.user.role !== 'admin') {
+    // Check if user is admin
+    if (user.role !== 'admin') {
       res.status(403).json({ error: 'Access denied. Admin privileges required.' });
       return;
     }
     
     next();
-  } catch {
-    res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+  } catch (error) {
+    // Determine whether this is an auth error or something else
+    if (error instanceof jwt.JsonWebTokenError) {
+      res.status(401).json({ error: 'Please authenticate.' });
+    } else {
+      res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+    }
   }
 }; 

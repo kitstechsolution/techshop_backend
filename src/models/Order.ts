@@ -16,7 +16,13 @@ export interface IOrder extends Document {
     pincode: string;
   };
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-  paymentStatus: 'pending' | 'completed' | 'failed';
+  paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded';
+  paymentMethod?: 'razorpay' | 'cash' | 'standard';
+  paymentId?: string;
+  paymentOrderId?: string;
+  paymentSignature?: string;
+  paymentError?: string;
+  paymentAttempts?: number;
   trackingNumber?: string;
 }
 
@@ -75,8 +81,28 @@ const orderSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ['pending', 'completed', 'failed'],
+    enum: ['pending', 'completed', 'failed', 'refunded'],
     default: 'pending',
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['razorpay', 'cash', 'standard'],
+  },
+  paymentId: {
+    type: String,
+  },
+  paymentOrderId: {
+    type: String,
+  },
+  paymentSignature: {
+    type: String,
+  },
+  paymentError: {
+    type: String,
+  },
+  paymentAttempts: {
+    type: Number,
+    default: 0,
   },
   trackingNumber: {
     type: String,

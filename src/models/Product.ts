@@ -6,6 +6,7 @@ export interface IProduct extends Document {
   price: number;
   imageUrl: string;
   category: string;
+  subcategory?: string;
   stock: number;
   ratings: Array<{
     userId: mongoose.Types.ObjectId;
@@ -37,6 +38,10 @@ const productSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true,
+  },
+  subcategory: {
+    type: String,
+    required: false,
   },
   stock: {
     type: Number,
