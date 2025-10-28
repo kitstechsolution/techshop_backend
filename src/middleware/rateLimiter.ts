@@ -3,11 +3,11 @@ import { Request, Response } from 'express';
 
 /**
  * General API rate limiter
- * Limits: 100 requests per 15 minutes
+ * Increased for development to reduce 429s during heavy client activity
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 1000, // Limit each IP to 1000 requests per windowMs (increased)
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
@@ -22,11 +22,10 @@ export const apiLimiter = rateLimit({
 
 /**
  * Strict rate limiter for authentication routes
- * Limits: 5 requests per 15 minutes
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 10, // Limit each IP to 10 requests per windowMs (slightly relaxed)
   skipSuccessfulRequests: true, // Don't count successful requests
   message: 'Too many authentication attempts, please try again later.',
   standardHeaders: true,
@@ -42,23 +41,29 @@ export const authLimiter = rateLimit({
 
 /**
  * Moderate rate limiter for public endpoints
- * Limits: 100 requests per 15 minutes
+ * Increased to reduce false-positive 429s for normal usage
  */
 export const publicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 1000, // Increased for public endpoints to reduce 429s under normal client load
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req: Request, res: Response) => {
+    res.status(429).json({
+      error: 'Too many requests',
+      message: 'You have exceeded the rate limit for public endpoints. Please try again later.',
+      retryAfter: req.rateLimit?.resetTime
+    });
+  },
 });
 
 /**
  * Rate limiter for admin endpoints
- * Limits: 500 requests per 15 minutes
  */
 export const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // Higher limit for admin users
+  max: 2000, // Higher limit for admin users (increased)
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -66,7 +71,6 @@ export const adminLimiter = rateLimit({
 
 /**
  * Very strict rate limiter for password reset
- * Limits: 3 requests per hour
  */
 export const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -78,7 +82,7 @@ export const passwordResetLimiter = rateLimit({
   handler: (req: Request, res: Response) => {
     res.status(429).json({
       error: 'Too many password reset attempts',
-      message: 'For security reasons, you can only request a password reset 3 times per hour.',
+      message: 'For security reasons, you can only request a password reset 3 times per hour. Please try again later.',
       retryAfter: req.rateLimit?.resetTime
     });
   }
@@ -86,11 +90,10 @@ export const passwordResetLimiter = rateLimit({
 
 /**
  * Rate limiter for file uploads
- * Limits: 10 uploads per 15 minutes
  */
 export const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  max: 50, // allow more uploads in a short window for bulk operations
   message: 'Too many file uploads, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -98,11 +101,10 @@ export const uploadLimiter = rateLimit({
 
 /**
  * Rate limiter for search endpoints
- * Limits: 50 requests per minute
  */
 export const searchLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 50,
+  max: 200, // increase search throughput
   message: 'Too many search requests, please slow down.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -110,11 +112,10 @@ export const searchLimiter = rateLimit({
 
 /**
  * Rate limiter for order creation
- * Limits: 10 orders per hour
  */
 export const orderLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10,
+  max: 20,
   message: 'Too many orders created, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,

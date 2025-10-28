@@ -133,15 +133,11 @@ const CheckoutSessionSchema = new Schema({
     index: true
   },
   cartId: { type: String },
+  // Allow sessions to be created with an empty items array (user may add items later).
+  // Order creation will perform strict validation (see validateForOrder).
   items: {
     type: [CheckoutItemSchema],
-    required: true,
-    validate: {
-      validator: function(items: ICheckoutItem[]) {
-        return items && items.length > 0;
-      },
-      message: 'Checkout session must have at least one item'
-    }
+    default: []
   },
   shippingAddress: { type: AddressSchema },
   billingAddress: { type: AddressSchema },
