@@ -13,12 +13,36 @@ import {
   getPaymentSettings,
   updatePaymentSettings
 } from '../controllers/adminController.js';
-import { 
+import {
   getShippingConfig,
   updateShippingConfig,
   testShippingConnection,
   getShippingAnalytics
 } from '../controllers/adminShippingController.js';
+import {
+  getPendingReviews,
+  approveReview,
+  rejectReview,
+  deleteReview
+} from '../controllers/admin/adminReviewController.js';
+import {
+  createCoupon,
+  getAllCoupons,
+  getCouponById,
+  updateCoupon,
+  deleteCoupon,
+  getCouponUsage
+} from '../controllers/couponController.js';
+import {
+  getAllCancelRequests,
+  getAllRefundRequests,
+  approveCancelRequest,
+  rejectCancelRequest,
+  approveRefundRequest,
+  rejectRefundRequest,
+  completeRefund,
+  updateReturnStatus
+} from '../controllers/adminCancelRefundController.js';
 import { adminAuth } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -54,4 +78,30 @@ router.put('/shipping/config', updateShippingConfig);
 router.post('/shipping/test-connection/:providerId', testShippingConnection);
 router.get('/shipping/analytics', getShippingAnalytics);
 
-export default router; 
+// Review moderation
+router.get('/reviews/pending', getPendingReviews);
+router.patch('/reviews/:productId/:reviewId/approve', approveReview);
+router.patch('/reviews/:productId/:reviewId/reject', rejectReview);
+router.delete('/reviews/:productId/:reviewId', deleteReview);
+
+// Coupon management
+router.post('/coupons', createCoupon);
+router.get('/coupons', getAllCoupons);
+router.get('/coupons/:id', getCouponById);
+router.patch('/coupons/:id', updateCoupon);
+router.delete('/coupons/:id', deleteCoupon);
+router.get('/coupons/:id/usage', getCouponUsage);
+
+// Cancel request management
+router.get('/cancel-requests', getAllCancelRequests);
+router.patch('/cancel-requests/:id/approve', approveCancelRequest);
+router.patch('/cancel-requests/:id/reject', rejectCancelRequest);
+
+// Refund request management
+router.get('/refund-requests', getAllRefundRequests);
+router.patch('/refund-requests/:id/approve', approveRefundRequest);
+router.patch('/refund-requests/:id/reject', rejectRefundRequest);
+router.patch('/refund-requests/:id/complete', completeRefund);
+router.patch('/refund-requests/:id/return-status', updateReturnStatus);
+
+export default router;

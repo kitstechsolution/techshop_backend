@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+ 
 import { Request, Response } from 'express';
 import { User, IUser } from '../models/User.js';
 import { Product } from '../models/Product.js';

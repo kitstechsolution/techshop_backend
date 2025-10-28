@@ -79,4 +79,44 @@ export const adminAuth = async (
       res.status(403).json({ error: 'Access denied. Admin privileges required.' });
     }
   }
-}; 
+};
+
+/**
+ * Optional authentication middleware
+ * Attempts to authenticate the user but doesn't fail if no token is provided
+ */
+export const optionalAuth = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+
+    // If no token, just continue without setting user
+    if (!token) {
+      next();
+      return;
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const user = await User.findOne({ _id: decoded._id });
+
+    // If user found, set it; otherwise just continue
+    if (user) {
+      req.user = user;
+    }
+
+    next();
+  } catch {
+    // On error, just continue without user (don't block the request)
+    next();
+  }
+};
+
+// Export aliases for different naming conventions used in routes
+export const protect = auth; // Alias for auth
+export const admin = adminAuth; // Alias for adminAuth
+
+// Export types
+export type { AuthRequest };

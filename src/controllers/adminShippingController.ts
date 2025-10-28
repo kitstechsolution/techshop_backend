@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import ShippingConfig from '../models/ShippingConfig';
-import { logger } from '../utils/logger';
-import { testShippingProvider } from '../services/ShippingService';
+import ShippingConfig from '../models/ShippingConfig.js';
+import { logger } from '../utils/logger.js';
+import { testShippingProvider } from '../services/ShippingService.js';
 
 // Get shipping configuration
 export const getShippingConfig = async (req: Request, res: Response): Promise<void> => {
@@ -212,7 +212,7 @@ export const testShippingConnection = async (req: Request, res: Response): Promi
 // Get shipping analytics
 export const getShippingAnalytics = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { period = '7d' } = req.query;
+    // const { period = '7d' } = req.query; // Will be used when implementing real analytics
     
     // For now, return mock data
     // In a real implementation, you would query your database for actual statistics

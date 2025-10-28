@@ -1,5 +1,6 @@
-import ShippingConfig from '../models/ShippingConfig';
-import shippingService from './ShippingService';
+import ShippingConfig from '../models/ShippingConfig.js';
+import shippingService from './ShippingService.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Initialize shipping configuration

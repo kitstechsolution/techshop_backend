@@ -1,5 +1,5 @@
-import { IShippingAggregator, IPickupLocation } from '../models/ShippingConfig';
-import { logger } from '../utils/logger';
+import { IShippingAggregator, IPickupLocation } from '../models/ShippingConfig.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Interface for shipping request
@@ -29,6 +29,9 @@ export interface ShippingRequest {
   pickupAddress?: string;
   pickupCity?: string;
   pickupState?: string;
+  pickupPhone?: string;
+  pickupEmail?: string;
+  returnReason?: string;
   items?: Array<{
     name: string;
     sku: string;
@@ -115,18 +118,19 @@ export interface PickupLocationResponse {
 export interface ShipmentTrackingResponse {
   success: boolean;
   message: string;
-  status: string;
-  trackingId: string;
-  currentLocation: string;
+  status?: string;
+  trackingId?: string;
+  currentLocation?: string;
   estimatedDeliveryDate?: Date;
-  carrierName: string;
-  history: Array<{
+  carrierName?: string;
+  error?: string;
+  history?: Array<{
     status: string;
     date: Date;
     location: string;
     description: string;
   }>;
-  extraData: {
+  extraData?: {
     pickupDate?: Date;
     originCity: string;
     destinationCity: string;
@@ -148,6 +152,7 @@ export interface ShipmentCancellationResponse {
     responseCode?: string;
     cancellationDate: string;
     additionalInfo?: string | null;
+    refundAmount?: number;
   };
 }
 
@@ -205,7 +210,7 @@ export abstract class ShippingAggregatorProvider {
    * Create a new pickup location for this provider
    * Default implementation returns null, override in provider implementation
    */
-  public async createPickupLocation(location: IPickupLocation): Promise<PickupLocationResponse | null> {
+  public async createPickupLocation(_location: IPickupLocation): Promise<PickupLocationResponse | null> {
     return null;
   }
 
@@ -213,7 +218,7 @@ export abstract class ShippingAggregatorProvider {
    * Create a return shipment (reverse pickup)
    * Default implementation returns error, override in provider implementation
    */
-  public async createReturnShipment(originalTrackingId: string, request: ShippingRequest): Promise<ShipmentResponse> {
+  public async createReturnShipment(_originalTrackingId: string, _request: ShippingRequest): Promise<ShipmentResponse> {
     return {
       success: false,
       message: 'Return shipment creation not supported by this provider',
@@ -248,7 +253,7 @@ export abstract class ShippingAggregatorProvider {
    * Get international shipping rates
    * Default implementation returns empty array, override in provider implementation
    */
-  public async getInternationalRates(request: ShippingRequest): Promise<ShippingRate[]> {
+  public async getInternationalRates(_request: ShippingRequest): Promise<ShippingRate[]> {
     return [];
   }
 }
@@ -295,15 +300,15 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Authentication failed: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      this.token = data.token;
+      const data: any = await response.json();
+      this.token = data.token || null;
       
       // Token is valid for 24 hours
       const expiry = new Date();
       expiry.setHours(expiry.getHours() + 24);
       this.tokenExpiry = expiry;
       
-      return this.token;
+      return this.token || '';
     } catch (error) {
       logger.error('Shiprocket authentication error:', error);
       throw new Error('Failed to authenticate with Shiprocket');
@@ -347,7 +352,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to get rates: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       // Return empty array if no courier companies are available
       if (!data.data?.available_courier_companies?.length) {
@@ -459,7 +464,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       });
 
       if (!createOrderResponse.ok) {
-        const errorData = await createOrderResponse.json().catch(() => ({}));
+        const errorData: any = await createOrderResponse.json().catch(() => ({}));
         logger.error('Shiprocket create order failed:', { 
           status: createOrderResponse.status, 
           errorData, 
@@ -472,7 +477,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         };
       }
 
-      const orderData = await createOrderResponse.json();
+      const orderData: any = await createOrderResponse.json();
       
       if (!orderData.order_id) {
         return {
@@ -496,7 +501,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       });
 
       if (!shipmentResponse.ok) {
-        const errorData = await shipmentResponse.json().catch(() => ({}));
+        const errorData: any = await shipmentResponse.json().catch(() => ({}));
         logger.error('Shiprocket generate shipment failed:', { 
           status: shipmentResponse.status, 
           errorData, 
@@ -509,7 +514,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         };
       }
 
-      const shipmentData = await shipmentResponse.json();
+      const shipmentData: any = await shipmentResponse.json();
       
       return {
         success: true,
@@ -547,7 +552,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData: any = await response.json().catch(() => ({}));
         logger.error('Shiprocket tracking failed:', { 
           status: response.status, 
           errorData, 
@@ -560,7 +565,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         };
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       // Handle case where tracking data might not be available
       if (!data.tracking_data || !data.tracking_data.shipment_track || !Array.isArray(data.tracking_data.shipment_track)) {
@@ -584,7 +589,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       if (shipmentTrack.etd) {
         try {
           estimatedDeliveryDate = new Date(shipmentTrack.etd);
-        } catch (e) {
+        } catch (_e) {
           logger.warn('Failed to parse Shiprocket ETD:', shipmentTrack.etd);
         }
       }
@@ -646,7 +651,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to find shipment: ${trackResponse.statusText}`);
       }
 
-      const trackData = await trackResponse.json();
+      const trackData: any = await trackResponse.json();
       const orderId = trackData.tracking_data?.order_id;
       
       if (!orderId) {
@@ -711,7 +716,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to get pickup locations: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.data || !Array.isArray(data.data.shipping_address)) {
         return [];
@@ -770,7 +775,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to create pickup location: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success) {
         throw new Error(`Failed to create pickup location: ${data.message || 'Unknown error'}`);
@@ -817,7 +822,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to find original shipment: ${trackResponse.statusText}`);
       }
 
-      const trackData = await trackResponse.json();
+      const trackData: any = await trackResponse.json();
       const orderId = trackData.tracking_data?.order_id;
       
       if (!orderId) {
@@ -841,12 +846,12 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       });
       
       if (!createReturnResponse.ok) {
-        const errorData = await createReturnResponse.json();
+        const errorData: any = await createReturnResponse.json();
         throw new Error(`Failed to create return shipment: ${JSON.stringify(errorData)}`);
       }
       
-      const returnData = await createReturnResponse.json();
-      const returnOrderId = returnData.order_id;
+      const returnData: any = await createReturnResponse.json();
+      // const returnOrderId = returnData.order_id; // May be needed for tracking
       const returnShipmentId = returnData.shipment_id;
 
       // Generate return label
@@ -863,7 +868,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       
       let labelUrl = '';
       if (generateLabelResponse.ok) {
-        const labelData = await generateLabelResponse.json();
+        const labelData: any = await generateLabelResponse.json();
         labelUrl = labelData.label_url || '';
       }
       
@@ -952,14 +957,16 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         weight: weightInKg.toString(),
         cod: '0', // International shipments don't support COD
         order_id: request.orderId
-      }).toString();
+      });
       
       // Add delivery pincode if available
       if (request.deliveryPincode) {
         queryParams.append('delivery_postcode', request.deliveryPincode);
       }
       
-      const response = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/international/serviceability?${queryParams}`, {
+      const queryString = queryParams.toString();
+      
+      const response = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/international/serviceability?${queryString}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -971,7 +978,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to get international rates: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       // Check if courier companies are available
       if (!data.data || !data.data.available_courier_companies || !Array.isArray(data.data.available_courier_companies)) {
@@ -1064,7 +1071,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to get rates: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success || !Array.isArray(data.couriers)) {
         logger.warn('Shipway no available couriers for request:', request);
@@ -1166,7 +1173,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to create shipment: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success) {
         throw new Error(`Failed to create order: ${data.message || 'Unknown error'}`);
@@ -1221,7 +1228,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to track shipment: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success) {
         throw new Error(`Failed to track shipment: ${data.message || 'Unknown error'}`);
@@ -1287,9 +1294,9 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
       }
 
       // Parse the response
-      let responseData;
+      let responseData: any;
       try {
-        responseData = await response.json();
+        responseData = await response.json() as any;
       } catch (parseError) {
         logger.error('Failed to parse Shipway cancellation response:', {
           trackingId,
@@ -1318,7 +1325,8 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
           extraData: {
             responseCode: responseData.code,
             cancellationDate: new Date().toISOString(),
-            additionalInfo: responseData.additional_info || null
+            additionalInfo: responseData.additional_info || null,
+            refundAmount: responseData.refund_amount
           }
         };
       }
@@ -1367,7 +1375,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to get pickup locations: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success || !Array.isArray(data.pickup_locations)) {
         return [];
@@ -1423,7 +1431,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to create pickup location: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success) {
         throw new Error(`Failed to create pickup location: ${data.message || 'Unknown error'}`);
@@ -1506,7 +1514,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to create return shipment: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (!data.success) {
         throw new Error(`Failed to create return shipment: ${data.message || 'Unknown error'}`);
@@ -1555,7 +1563,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         case 'out_for_delivery':
           logger.info(`Shipway order ${orderId} is out for delivery`);
           break;
-        case 'ndr':
+        case 'ndr': {
           // NDR (Non-Delivery Report) handling
           const ndrReason = event.ndr_reason || 'Unknown reason';
           logger.warn(`Shipway NDR for order ${orderId}: ${ndrReason}`);
@@ -1563,6 +1571,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
           // For example, notify customer, attempt redelivery, etc.
           this.handleNDR(awb, ndrReason, event.ndr_comments);
           break;
+        }
         case 'rto_initiated':
           logger.warn(`Shipway RTO initiated for order ${orderId}`);
           break;
@@ -1606,7 +1615,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         throw new Error(`Failed to handle NDR: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (data.success) {
         logger.info(`Successfully requested redelivery for AWB ${awb}`);
@@ -1629,7 +1638,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
    * Get international shipping rates
    * Note: Shipway doesn't support international shipping, this returns empty array
    */
-  public async getInternationalRates(request: ShippingRequest): Promise<ShippingRate[]> {
+  public async getInternationalRates(_request: ShippingRequest): Promise<ShippingRate[]> {
     logger.warn('Shipway does not support international shipping');
     return [];
   }
@@ -1708,7 +1717,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
         return [];
       }
 
-      let data;
+      let data: any;
       try {
         data = await response.json();
       } catch (parseError) {
@@ -1844,7 +1853,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
         };
       }
 
-      let data;
+      let data: any;
       try {
         data = await response.json();
       } catch (parseError) {
@@ -1963,7 +1972,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
         };
       }
 
-      let data;
+      let data: any;
       try {
         data = await response.json();
       } catch (parseError) {
@@ -2031,7 +2040,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       if (data.estimated_delivery_date) {
         try {
           estimatedDeliveryDate = new Date(data.estimated_delivery_date);
-        } catch (e) {
+        } catch (_e) {
           logger.warn('Failed to parse Shipyaari ETD:', data.estimated_delivery_date);
         }
       }
@@ -2119,7 +2128,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       }
 
       // Parse verification response
-      let verifyData;
+      let verifyData: any;
       try {
         verifyData = await verifyResponse.json();
       } catch (parseError) {
@@ -2178,9 +2187,9 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       }
 
       // Parse the response
-      let responseData;
+      let responseData: any;
       try {
-        responseData = await response.json();
+        responseData = await response.json() as any;
       } catch (parseError) {
         logger.error('Failed to parse Shipyaari cancellation response:', {
           trackingId,

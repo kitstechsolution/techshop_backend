@@ -1,0 +1,2 @@
+# This file ensures the migrations directory is tracked by Git
+# Migration files will be created here using: npm run migrate:create <name>

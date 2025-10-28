@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
-import ShippingConfig, { IShippingAggregator } from '../models/ShippingConfig';
+import ShippingConfig, { IShippingAggregator } from '../models/ShippingConfig.js';
 import shippingService, { 
   ShippingRequest, 
   ShippingAggregatorProvider,
   ShiprocketProvider,
   ShipwayProvider, 
   ShipyaariProvider
-} from '../services/ShippingService';
-import { logger } from '../utils/logger';
+} from '../services/ShippingService.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Extended Request with authenticated user
@@ -609,7 +609,7 @@ export const createPickupLocation = async (req: Request, res: Response): Promise
  */
 export const getShippingAnalytics = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const period = req.query.period as string || '30d'; // Default to 30 days
+    // const period = req.query.period as string || '30d'; // Will be used when implementing real analytics
     
     // Get all orders with shipments in the given period
     // This would typically be fetched from the database or calculated from shipping data

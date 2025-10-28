@@ -12,8 +12,8 @@ import {
   getPickupLocations,
   createPickupLocation,
   getShippingAnalytics
-} from '../controllers/shippingController';
-import { adminAuth, auth } from '../middleware/auth';
+} from '../controllers/shippingController.js';
+import { adminAuth, auth } from '../middleware/auth.js';
 
 const router = express.Router();
 

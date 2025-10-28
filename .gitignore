@@ -316,3 +316,7 @@ docker-compose.override.yml
 .next/
 .nuxt/
 
+# Uploads (user-generated content)
+uploads/
+!uploads/.gitkeep
+

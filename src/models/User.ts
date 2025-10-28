@@ -5,14 +5,19 @@ export interface IUser extends Document {
   _id: Types.ObjectId;
   firstName: string;
   lastName: string;
+  name: string; // Virtual full name
   email: string;
   password: string;
   role: 'user' | 'admin';
   addresses: Array<{
-    street: string;
+    fullName: string;
+    phone: string;
+    addressLine1: string;
+    addressLine2?: string;
     city: string;
     state: string;
-    pincode: string;
+    zipCode: string;
+    country: string;
     isDefault: boolean;
   }>;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -47,9 +52,20 @@ const userSchema = new mongoose.Schema({
     default: 'user',
   },
   addresses: [{
-    street: {
+    fullName: {
       type: String,
       required: true,
+    },
+    phone: {
+      type: String,
+      required: true,
+    },
+    addressLine1: {
+      type: String,
+      required: true,
+    },
+    addressLine2: {
+      type: String,
     },
     city: {
       type: String,
@@ -59,9 +75,14 @@ const userSchema = new mongoose.Schema({
       type: String,
       required: true,
     },
-    pincode: {
+    zipCode: {
       type: String,
       required: true,
+    },
+    country: {
+      type: String,
+      required: true,
+      default: 'India',
     },
     isDefault: {
       type: Boolean,
@@ -94,4 +115,9 @@ userSchema.methods.comparePassword = async function(candidatePassword: string): 
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-export const User = mongoose.model<IUser>('User', userSchema); 
+// Virtual for full name
+userSchema.virtual('name').get(function() {
+  return `${this.firstName} ${this.lastName}`;
+});
+
+export const User = mongoose.model<IUser>('User', userSchema);

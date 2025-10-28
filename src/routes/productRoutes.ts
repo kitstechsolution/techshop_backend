@@ -1,43 +1,75 @@
 import express from 'express';
-import { Product } from '../models/Product.js';
-import { logger } from '../utils/logger.js';
+import {
+  getProducts,
+  getProductsByCategory,
+  getProductById,
+  getFilterOptions,
+  getFeaturedProducts,
+  getNewProducts,
+  getProductBySlug,
+  getBestSellers,
+  getRelatedProducts,
+  getRecommendations,
+  checkAvailability,
+  getProductVariants,
+  trackProductView,
+  isInWishlist
+} from '../controllers/productController.js';
+import { createReview, getProductReviews, voteOnReview } from '../controllers/reviewController.js';
+import { auth, optionalAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all products
-router.get('/', async (req, res) => {
-  try {
-    const products = await Product.find({});
-    res.json(products);
-  } catch (error) {
-    logger.error('Error fetching products:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
-  }
-});
+// Get filter options (must come before other routes to avoid conflicts)
+router.get('/filters/options', getFilterOptions);
 
-// Get products by category - this must come before the /:id route to prevent conflicts
-router.get('/category/:category', async (req, res) => {
-  try {
-    const products = await Product.find({ category: req.params.category });
-    res.json(products);
-  } catch (error) {
-    logger.error('Error fetching products by category:', error);
-    res.status(500).json({ error: 'Failed to fetch products by category' });
-  }
-});
+// Get featured products
+router.get('/featured/list', getFeaturedProducts);
+
+// Get new products
+router.get('/new/list', getNewProducts);
+
+// Get best sellers
+router.get('/bestsellers/list', getBestSellers);
+
+// Get personalized recommendations (optional auth - personalized if logged in, popular otherwise)
+router.get('/recommendations/list', optionalAuth, getRecommendations);
+
+// Get products by category (must come before /:id)
+router.get('/category/:category', getProductsByCategory);
+
+// Get product by slug
+router.get('/slug/:slug', getProductBySlug);
+
+// Get all products with filters
+router.get('/', getProducts);
 
 // Get product by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    res.json(product);
-  } catch (error) {
-    logger.error('Error fetching product:', error);
-    res.status(500).json({ error: 'Failed to fetch product' });
-  }
-});
+router.get('/:id', getProductById);
 
-export default router; 
+// Check product availability
+router.get('/:id/availability', checkAvailability);
+
+// Get product variants
+router.get('/:id/variants', getProductVariants);
+
+// Get related products
+router.get('/:id/related', getRelatedProducts);
+
+// Check if product is in wishlist (protected)
+router.get('/:id/wishlist-status', auth, isInWishlist);
+
+// Track product view
+router.post('/:id/track-view', optionalAuth, trackProductView);
+
+// Review routes
+// Get product reviews (public)
+router.get('/:productId/reviews', getProductReviews);
+
+// Submit review (protected)
+router.post('/:productId/reviews', auth, createReview);
+
+// Vote on review (protected) - helpful/not helpful
+router.post('/:productId/reviews/:reviewId/vote', auth, voteOnReview);
+
+export default router;

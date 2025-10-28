@@ -8,6 +8,10 @@ export interface IOrder extends Document {
     price: number;
     quantity: number;
   }>;
+  subtotal: number;
+  discountAmount?: number;
+  discount?: number; // Alias for discountAmount
+  couponCode?: string;
   total: number;
   shippingAddress: {
     street: string;
@@ -17,6 +21,8 @@ export interface IOrder extends Document {
   };
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded';
+  refundStatus?: 'none' | 'requested' | 'processing' | 'completed' | 'rejected';
+  refundAmount?: number;
   paymentMethod?: 'razorpay' | 'cash' | 'standard';
   paymentId?: string;
   paymentOrderId?: string;
@@ -24,6 +30,14 @@ export interface IOrder extends Document {
   paymentError?: string;
   paymentAttempts?: number;
   trackingNumber?: string;
+  estimatedDeliveryDate?: Date;
+  actualDeliveryDate?: Date;
+  shippingProvider?: string;
+  shippingCost?: number;
+  tax?: number;
+  totalAmount?: number;
+  orderNumber?: string;
+  notes?: string;
 }
 
 const orderSchema = new mongoose.Schema({
@@ -52,6 +66,19 @@ const orderSchema = new mongoose.Schema({
       min: 1,
     },
   }],
+  subtotal: {
+    type: Number,
+    required: true,
+  },
+  discountAmount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  couponCode: {
+    type: String,
+    uppercase: true,
+  },
   total: {
     type: Number,
     required: true,
@@ -106,6 +133,39 @@ const orderSchema = new mongoose.Schema({
   },
   trackingNumber: {
     type: String,
+  },
+  estimatedDeliveryDate: {
+    type: Date,
+  },
+  actualDeliveryDate: {
+    type: Date,
+  },
+  shippingProvider: {
+    type: String,
+    trim: true,
+  },
+  shippingCost: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  tax: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  totalAmount: {
+    type: Number,
+    required: true,
+  },
+  orderNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
+  notes: {
+    type: String,
+    trim: true,
   },
 }, {
   timestamps: true,
