@@ -1,10 +1,11 @@
 import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
-import { app } from '../../app.js';
+import app from '../../app.js';
 import { User } from '../../models/User.js';
 
 let mongoServer: MongoMemoryServer;
+const requestAny = request as any;
 
 beforeAll(async () => {
   // Create an in-memory MongoDB instance
@@ -37,7 +38,7 @@ describe('Auth API Integration Tests', () => {
         password: 'password123',
       };
 
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/register')
         .send(userData)
         .expect(201);
@@ -57,7 +58,7 @@ describe('Auth API Integration Tests', () => {
       };
 
       // Register first time
-      await request(app)
+      await requestAny(app)
         .post('/api/auth/register')
         .send(userData)
         .expect(201);
@@ -72,7 +73,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should validate required fields', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/register')
         .send({
           firstName: 'John',

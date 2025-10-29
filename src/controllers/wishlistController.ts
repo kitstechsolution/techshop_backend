@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { Wishlist } from '../models/Wishlist.js';
 import { Product } from '../models/Product.js';
 import { Cart } from '../models/Cart.js';
@@ -404,7 +405,7 @@ export const moveToCart = async (req: Request, res: Response): Promise<void> => 
     } else {
       // Add new item to cart
       cart.items.push({
-        product: product._id,
+        product: product._id as Types.ObjectId,
         name: product.name,
         price: product.price,
         quantity,

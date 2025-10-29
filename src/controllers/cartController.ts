@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { Cart } from '../models/Cart.js';
 import { Product } from '../models/Product.js';
 import { Coupon } from '../models/Coupon.js';
@@ -42,10 +43,20 @@ export const getCart = async (req: AuthRequest, res: Response): Promise<void> =>
  */
 export const addToCart = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { productId, quantity, variantId } = req.body;
+    let { productId, quantity, variantId } = req.body;
 
-    if (!productId || !quantity) {
-      res.status(400).json({ error: 'Product ID and quantity are required' });
+    logger.debug('addToCart called', { userId: req.user?._id, body: req.body });
+
+    // Require authentication for cart operations (avoid creating carts with undefined user)
+    if (!req.user || !req.user._id) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    // Normalize and validate inputs
+    quantity = Number(quantity);
+    if (!productId || !Number.isInteger(quantity) || quantity < 1) {
+      res.status(400).json({ error: 'Product ID and a valid integer quantity are required' });
       return;
     }
 
@@ -56,27 +67,37 @@ export const addToCart = async (req: AuthRequest, res: Response): Promise<void> 
       return;
     }
 
-    if (product.stock < quantity) {
+    if (typeof product.stock !== 'number' || product.stock < quantity) {
       res.status(400).json({ error: 'Insufficient stock' });
       return;
     }
 
     // Find or create cart
-    let cart = await Cart.findOne({ user: req.user?._id });
+    let cart = await Cart.findOne({ user: req.user._id });
     if (!cart) {
-      cart = new Cart({ user: req.user?._id, items: [] });
+      cart = new Cart({ user: req.user._id, items: [] });
     }
 
+    // Normalize variant for comparison
+    const normalizedVariant = variantId === undefined ? null : variantId;
+
     // Check if item already in cart
-    const existingItemIndex = cart.items.findIndex(
-      (item: any) => item.product.toString() === productId && 
-              JSON.stringify(item.variant) === JSON.stringify(variantId)
-    );
+    const existingItemIndex = cart.items.findIndex((item: any) => {
+      try {
+        const sameProduct = item.product?.toString() === String(productId);
+        const sameVariant = JSON.stringify(item.variant || null) === JSON.stringify(normalizedVariant);
+        return sameProduct && sameVariant;
+      } catch (e) {
+        // If comparison fails, treat as not equal
+        logger.warn('addToCart: variant comparison failed', { err: e });
+        return false;
+      }
+    });
 
     if (existingItemIndex > -1) {
       // Update quantity
       cart.items[existingItemIndex].quantity += quantity;
-      
+
       // Check max quantity
       if (cart.items[existingItemIndex].quantity > product.stock) {
         res.status(400).json({ error: 'Exceeds available stock' });
@@ -84,21 +105,28 @@ export const addToCart = async (req: AuthRequest, res: Response): Promise<void> 
       }
     } else {
       // Add new item
+      // Use product.images[0], then product.imageUrl, otherwise a placeholder to satisfy schema
+      const imageUrl = (product.images && product.images[0])
+        ? product.images[0]
+        : (product.imageUrl && product.imageUrl.length ? product.imageUrl : '/images/no-image.png');
       cart.items.push({
-        product: product._id,
+        product: product._id as Types.ObjectId,
         name: product.name,
         price: product.price,
         quantity,
-        image: product.images && product.images[0] ? product.images[0] : '',
-        variant: variantId,
+        image: imageUrl,
         maxQuantity: product.stock,
       });
     }
 
-    await cart.save();
-    await cart.populate('items.product');
-    
-    res.status(201).json(cart);
+    try {
+      await cart.save();
+      await cart.populate('items.product');
+      res.status(201).json(cart);
+    } catch (saveErr) {
+      logger.error('Error saving cart after addToCart:', saveErr);
+      res.status(500).json({ error: 'Failed to save cart' });
+    }
   } catch (error) {
     logger.error('Error adding to cart:', error);
     res.status(500).json({ error: 'Failed to add item to cart' });
@@ -125,7 +153,7 @@ export const updateCartItem = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    const item = cart.items.id(itemId);
+  const item = cart.items.find((it: any) => it._id?.toString() === itemId);
     if (!item) {
       res.status(404).json({ error: 'Item not found in cart' });
       return;
@@ -211,8 +239,8 @@ export const applyCoupon = async (req: AuthRequest, res: Response): Promise<void
     }
 
     // Validate coupon
-    const coupon = await Coupon.findOne({ 
-      code: code.toUpperCase(), 
+    const coupon = await Coupon.findOne({
+      code: code.toUpperCase(),
       isActive: true,
       validFrom: { $lte: new Date() },
       validUntil: { $gte: new Date() },
@@ -223,23 +251,20 @@ export const applyCoupon = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Check minimum order value
-    if (coupon.minOrderValue && cart.subtotal < coupon.minOrderValue) {
-      res.status(400).json({ 
-        error: `Minimum order value of ${coupon.minOrderValue} required` 
-      });
+    // Use any typing for coupon fields to avoid typing mismatches in controller
+    const c = coupon as any;
+
+    if (c.minOrderValue && cart.subtotal < c.minOrderValue) {
+      res.status(400).json({ error: `Minimum order value of ${c.minOrderValue} required` });
       return;
     }
 
-    // Calculate discount
     let discount = 0;
-    if (coupon.discountType === 'percentage') {
-      discount = (cart.subtotal * coupon.discountValue) / 100;
-      if (coupon.maxDiscount) {
-        discount = Math.min(discount, coupon.maxDiscount);
-      }
+    if (c.discountType === 'percentage') {
+      discount = (cart.subtotal * c.discountValue) / 100;
+      if (c.maxDiscount) discount = Math.min(discount, c.maxDiscount);
     } else {
-      discount = coupon.discountValue;
+      discount = c.discountValue || 0;
     }
 
     cart.couponCode = code.toUpperCase();
@@ -248,13 +273,13 @@ export const applyCoupon = async (req: AuthRequest, res: Response): Promise<void
 
     await cart.save();
     await cart.populate('items.product');
-    
+
     res.json(cart);
-  } catch (error) {
-    logger.error('Error applying coupon:', error);
-    res.status(500).json({ error: 'Failed to apply coupon' });
-  }
-};
+    } catch (error) {
+      logger.error('Error applying coupon:', error);
+      res.status(500).json({ error: 'Failed to apply coupon' });
+    }
+  };
 
 /**
  * Remove coupon
@@ -274,7 +299,7 @@ export const removeCoupon = async (req: AuthRequest, res: Response): Promise<voi
 
     await cart.save();
     await cart.populate('items.product');
-    
+
     res.json(cart);
   } catch (error) {
     logger.error('Error removing coupon:', error);
@@ -301,8 +326,8 @@ export const validateCoupon = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    const coupon = await Coupon.findOne({ 
-      code: code.toUpperCase(), 
+    const coupon = await Coupon.findOne({
+      code: code.toUpperCase(),
       isActive: true,
       validFrom: { $lte: new Date() },
       validUntil: { $gte: new Date() },
@@ -313,30 +338,21 @@ export const validateCoupon = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    if (coupon.minOrderValue && cart.subtotal < coupon.minOrderValue) {
-      res.json({ 
-        valid: false, 
-        message: `Minimum order value of ${coupon.minOrderValue} required` 
-      });
+    const c = coupon as any;
+    if (c.minOrderValue && cart.subtotal < c.minOrderValue) {
+      res.json({ valid: false, message: `Minimum order value of ${c.minOrderValue} required` });
       return;
     }
 
     let discount = 0;
-    if (coupon.discountType === 'percentage') {
-      discount = (cart.subtotal * coupon.discountValue) / 100;
-      if (coupon.maxDiscount) {
-        discount = Math.min(discount, coupon.maxDiscount);
-      }
+    if (c.discountType === 'percentage') {
+      discount = (cart.subtotal * c.discountValue) / 100;
+      if (c.maxDiscount) discount = Math.min(discount, c.maxDiscount);
     } else {
-      discount = coupon.discountValue;
+      discount = c.discountValue || 0;
     }
 
-    res.json({ 
-      valid: true, 
-      discount,
-      discountType: coupon.discountType,
-      message: 'Coupon is valid'
-    });
+    res.json({ valid: true, discount, discountType: c.discountType, message: 'Coupon is valid' });
   } catch (error) {
     logger.error('Error validating coupon:', error);
     res.status(500).json({ error: 'Failed to validate coupon' });
@@ -425,7 +441,7 @@ export const mergeCart = async (req: AuthRequest, res: Response): Promise<void> 
         cart.items[existingItemIndex].quantity = Math.min(newQuantity, product.stock);
       } else {
         cart.items.push({
-          product: product._id,
+          product: product._id as Types.ObjectId,
           name: product.name,
           price: product.price,
           quantity: Math.min(guestItem.quantity, product.stock),
@@ -557,7 +573,7 @@ export const moveToWishlist = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    const item = cart.items.id(itemId);
+  const item = cart.items.find((it: any) => it._id?.toString() === itemId);
     if (!item) {
       res.status(404).json({ error: 'Item not found in cart' });
       return;
@@ -686,7 +702,7 @@ export const applyGiftWrapping = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const item = cart.items.id(itemId);
+  const item = cart.items.find((it: any) => it._id?.toString() === itemId);
     if (!item) {
       res.status(404).json({ error: 'Item not found in cart' });
       return;

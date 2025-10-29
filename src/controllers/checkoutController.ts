@@ -3,7 +3,9 @@ import { CheckoutSession } from '../models/CheckoutSession.js';
 import { Order } from '../models/Order.js';
 import { User } from '../models/User.js';
 import { Product } from '../models/Product.js';
+import { Cart } from '../models/Cart.js';
 import { v4 as uuidv4 } from 'uuid';
+import { Types } from 'mongoose';
 import { logger } from '../utils/logger.js';
 
 // Extend Request to include user
@@ -847,41 +849,190 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Validate session
+    // Apply any incoming selection IDs to session (helps if UI skipped earlier steps)
+    const { shippingAddressId, billingAddressId, shippingMethodId, paymentMethodId } = req.body || {};
+
+    try {
+      if (shippingAddressId && !session.shippingAddress) {
+        const user = await User.findById(userId);
+        const address = user?.addresses?.find((addr: any) => addr._id?.toString() === shippingAddressId);
+        if (address) {
+          session.shippingAddress = {
+            fullName: address.fullName,
+            phone: address.phone,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2,
+            city: address.city,
+            state: address.state,
+            zipCode: address.zipCode,
+            country: address.country || 'India'
+          };
+        }
+      }
+
+      if (billingAddressId && !session.billingAddress) {
+        const user = await User.findById(userId);
+        const address = user?.addresses?.find((addr: any) => addr._id?.toString() === billingAddressId);
+        if (address) {
+          session.billingAddress = {
+            fullName: address.fullName,
+            phone: address.phone,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2,
+            city: address.city,
+            state: address.state,
+            zipCode: address.zipCode,
+            country: address.country || 'India'
+          };
+        }
+      }
+
+      // If shipping method id provided, set a sensible default method object (mirrors selectShippingMethod)
+      if (shippingMethodId && !session.shippingMethod) {
+        const methodDefaults: any = {
+          standard: { id: 'standard', name: 'Standard Shipping', description: 'Delivery in 5-7 business days', cost: session.subtotal >= 1000 ? 0 : 50, estimatedDays: 7, carrier: 'India Post' },
+          express: { id: 'express', name: 'Express Shipping', description: 'Delivery in 2-3 business days', cost: 150, estimatedDays: 3, carrier: 'Blue Dart' },
+          overnight: { id: 'overnight', name: 'Overnight Delivery', description: 'Next day delivery', cost: 300, estimatedDays: 1, carrier: 'DHL' }
+        };
+        session.shippingMethod = methodDefaults[shippingMethodId] || { id: shippingMethodId, name: shippingMethodId, cost: 0, estimatedDays: 7, carrier: 'Unknown' };
+      }
+
+      // If payment method id provided, set session.paymentMethod accordingly
+      if (paymentMethodId && !session.paymentMethod) {
+        const methodMap: { [key: string]: any } = {
+          'cod': { id: 'cod', type: 'cod', provider: 'Cash on Delivery' },
+          'card': { id: 'card', type: 'credit_card', provider: 'Credit/Debit Card' },
+          'upi': { id: 'upi', type: 'upi', provider: 'UPI' },
+          'netbanking': { id: 'netbanking', type: 'net_banking', provider: 'Net Banking' },
+          'wallet': { id: 'wallet', type: 'wallet', provider: 'Wallets' }
+        };
+        session.paymentMethod = methodMap[paymentMethodId] || { id: paymentMethodId, type: 'wallet', provider: paymentMethodId };
+      }
+
+      // Persist any updates to session
+      await session.save();
+    } catch (applyErr) {
+      const errMsg = applyErr && (applyErr as any).message ? (applyErr as any).message : String(applyErr);
+      logger.warn('createOrder: failed to apply incoming selections to session', { err: errMsg });
+    }
+
+      // If session has no items, try to populate it from the user's cart (helps when UI updated cart but didn't create session)
+      try {
+        if ((!session.items || session.items.length === 0)) {
+          const cart = await Cart.findOne({ user: userId }).populate('items.product');
+          if (cart && cart.items && cart.items.length > 0) {
+            session.items = cart.items.map((it: any) => ({
+              productId: String(it.product?._id ?? it.product),
+              name: it.name,
+              quantity: it.quantity,
+              price: it.price,
+              image: it.image || (it.product && (it.product.imageUrl || (it.product.images && it.product.images[0]))) || '/images/no-image.png',
+            }));
+            await session.save();
+            logger.info('createOrder: populated session items from cart', { userId, itemCount: session.items.length });
+          }
+        }
+      } catch (populateErr) {
+        logger.warn('createOrder: failed to populate session from cart', { err: (populateErr as any)?.message ?? String(populateErr) });
+      }
+
+      // Validate session
     const validation = session.validateForOrder();
     if (!validation.valid) {
+      logger.warn('createOrder: checkout validation failed', { userId, errors: validation.errors, sessionSnapshot: { items: session.items.length, shippingAddress: !!session.shippingAddress, shippingMethod: !!session.shippingMethod, paymentMethod: !!session.paymentMethod } });
       res.status(400).json({ error: 'Checkout validation failed', errors: validation.errors });
       return;
     }
 
-    // Create order
+    // Create order - map session into Order schema shape
     const orderNumber = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    
-    const order = new Order({
-      userId,
+
+    // Map items: session.items may have different shapes. Order expects product ObjectId.
+    const mappedItems = (session.items || [])
+      .map((it: any) => {
+        // support shapes: { productId }, { product: {_id} }, or { product }
+        const rawProductId = it?.productId ?? it?.product?._id ?? it?.product ?? undefined;
+        if (!rawProductId) return null;
+        try {
+          return {
+            product: new Types.ObjectId(String(rawProductId)),
+            name: it.name || it.title || '',
+            price: typeof it.price === 'number' ? it.price : Number(it.price) || 0,
+            quantity: typeof it.quantity === 'number' ? it.quantity : Number(it.quantity) || 1,
+          };
+        } catch (e) {
+          // invalid id
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    // Map shipping address fields expected by Order schema - use any to avoid TS indexing errors
+    const sa: any = session.shippingAddress || {};
+    const shippingAddressForOrder = {
+      street: sa.addressLine1 || sa.street || sa.line1 || sa.address || '',
+      city: sa.city || sa.town || '',
+      state: sa.state || '',
+      pincode: sa.zipCode || sa.pincode || sa.zip || sa.postalCode || '',
+      country: sa.country || 'India'
+    };
+
+    // Ensure totalAmount exists (compute if needed)
+    const subtotal = typeof session.subtotal === 'number' ? session.subtotal : Number(session.subtotal) || 0;
+    const tax = typeof session.tax === 'number' ? session.tax : Number(session.tax) || 0;
+    const shippingCost = typeof session.shipping === 'number' ? session.shipping : Number(session.shipping) || 0;
+    const discountAmount = typeof session.discount === 'number' ? session.discount : Number(session.discount) || 0;
+    const giftCardDiscount = typeof session.giftCardDiscount === 'number' ? session.giftCardDiscount : Number(session.giftCardDiscount) || 0;
+    const computedTotal = subtotal + tax + shippingCost - discountAmount - giftCardDiscount;
+
+    // Map payment method to Order.paymentMethod enum: produce simple string values only
+    let paymentMethodForOrder: string | undefined = undefined;
+    if (session.paymentMethod) {
+      const pmAny: any = session.paymentMethod;
+      const pmId = (pmAny && (pmAny.id || pmAny.type)) || (typeof pmAny === 'string' ? pmAny : undefined);
+      if (pmId === 'cod' || pmId === 'cash') paymentMethodForOrder = 'cash';
+      else if (pmId === 'razorpay' || pmId === 'stripe' || pmId === 'online') paymentMethodForOrder = 'razorpay';
+      else if (pmId === 'upi' || pmId === 'netbanking' || pmId === 'wallet') paymentMethodForOrder = 'standard';
+      else paymentMethodForOrder = String(pmId || 'standard');
+    }
+
+    const orderPayload: any = {
+      user: new Types.ObjectId(String(userId)),
       orderNumber,
-      items: session.items,
-      shippingAddress: session.shippingAddress,
-      billingAddress: session.billingAddress || session.shippingAddress,
-      shippingMethod: session.shippingMethod,
-      paymentMethod: session.paymentMethod,
-      subtotal: session.subtotal,
-      tax: session.tax,
-      shipping: session.shipping,
-      discount: session.discount,
-      total: session.total,
+      items: mappedItems,
+      shippingAddress: shippingAddressForOrder,
+      subtotal,
+      tax,
+      shippingCost,
+      discountAmount,
+      total: session.total ?? computedTotal,
+      totalAmount: session.total ?? computedTotal,
       notes: session.notes,
       status: 'pending',
-      paymentStatus: session.paymentMethod?.type === 'cod' ? 'pending' : 'pending'
-    });
+      paymentStatus: 'pending'
+    };
 
-    await order.save();
+    if (paymentMethodForOrder) orderPayload.paymentMethod = paymentMethodForOrder;
+
+    logger.info('createOrder: orderPayload before save', { orderPayload });
+    logger.info('createOrder: mappedItems and shippingAddressForOrder', { mappedItems, shippingAddressForOrder, sessionShippingAddress: session.shippingAddress });
+    const order = new Order(orderPayload);
+    try {
+      await order.save();
+    } catch (saveErr) {
+      logger.error('createOrder: order.save failed', { error: (saveErr as any)?.message ?? String(saveErr), orderPayload });
+      throw saveErr;
+    }
 
     // Mark session as completed
     session.status = 'completed';
     await session.save();
 
-    res.status(201).json(order);
+    // Return plain object with `id` for frontend convenience
+    const orderObj = order.toObject({ getters: true });
+    // Ensure `id` exists (some frontends expect `id` instead of `_id`)
+    (orderObj as any).id = order._id;
+    res.status(201).json(orderObj);
   } catch (error) {
     logger.error('Error creating order:', error);
     res.status(500).json({ error: 'Failed to create order' });
@@ -896,14 +1047,25 @@ export const getOrderConfirmation = async (req: AuthRequest, res: Response): Pro
   try {
     const userId = req.user._id;
     const { id } = req.params;
-
-    const order = await Order.findOne({ _id: id, userId });
+    // Try to find by ObjectId first, then fallback to orderNumber
+    let order = null;
+    try {
+      order = await Order.findOne({ _id: id, user: userId });
+    } catch (e) {
+      // ignore cast errors and try orderNumber
+      order = null;
+    }
+    if (!order) {
+      order = await Order.findOne({ orderNumber: id, user: userId });
+    }
     if (!order) {
       res.status(404).json({ error: 'Order not found' });
       return;
     }
 
-    res.json(order);
+    const orderObj = order.toObject({ getters: true });
+    (orderObj as any).id = order._id;
+    res.json(orderObj);
   } catch (error) {
     logger.error('Error getting order confirmation:', error);
     res.status(500).json({ error: 'Failed to get order confirmation' });
