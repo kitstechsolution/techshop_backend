@@ -379,15 +379,12 @@ export const downloadInvoice = async (req: AuthRequest, res: Response): Promise<
       return;
     }
     
-    // Check if order is eligible for invoice (must be paid or delivered)
-    if (!['completed', 'delivered'].includes(order.status) && order.paymentStatus !== 'completed') {
-      res.status(400).json({ 
-        error: 'Invoice not available',
-        message: 'Invoice is only available for completed or delivered orders'
-      });
-      return;
-    }
-    
+    // Generate invoice for any order (proforma for unpaid/pending)
+    // Map shipping address fields defensively (support different schemas)
+    const street = (order as any)?.shippingAddress?.street || (order as any)?.shippingAddress?.addressLine1 || '';
+    const zip = (order as any)?.shippingAddress?.zipCode || (order as any)?.shippingAddress?.pincode || '';
+    const country = (order as any)?.shippingAddress?.country || 'IN';
+
     // Prepare invoice data for PDF generation
     const invoiceData = {
       invoiceNumber: `INV-${order._id.toString().slice(-8).toUpperCase()}`,
@@ -398,26 +395,31 @@ export const downloadInvoice = async (req: AuthRequest, res: Response): Promise<
         email: (order.user as any)?.email || '',
       },
       shippingAddress: {
-        street: order.shippingAddress?.street,
-        city: order.shippingAddress?.city,
-        state: order.shippingAddress?.state,
-        zipCode: order.shippingAddress?.zipCode,
-        country: order.shippingAddress?.country || 'USA',
+        street,
+        city: (order as any)?.shippingAddress?.city,
+        state: (order as any)?.shippingAddress?.state,
+        zipCode: zip,
+        country,
       },
-      items: order.items.map(item => ({
-        product: (item.product as any)?.name || 'Product',
-        quantity: item.quantity,
-        price: item.price,
-        total: item.price * item.quantity
-      })),
-      subtotal: order.subtotal || 0,
-      tax: order.tax || 0,
-      shipping: order.shipping || 0,
-      total: order.total || 0,
-      paymentMethod: order.paymentMethod || 'standard',
-      paymentStatus: order.paymentStatus || 'pending'
-    };
-    
+      items: order.items.map((item: any) => {
+        const name = item?.name || item?.product?.name || 'Product';
+        const price = typeof item?.price === 'number' ? item.price : (item?.product?.price ?? 0);
+        const quantity = typeof item?.quantity === 'number' ? item.quantity : 1;
+        return {
+          product: name,
+          quantity,
+          price,
+          total: price * quantity,
+        };
+      }),
+      subtotal: typeof (order as any)?.subtotal === 'number' ? (order as any).subtotal : (order.items as any[]).reduce((s, it: any) => s + ((it.price ?? it.product?.price ?? 0) * (it.quantity ?? 1)), 0),
+      tax: (order as any)?.tax ?? 0,
+      shipping: (order as any)?.shipping ?? 0,
+      total: typeof (order as any)?.total === 'number' ? (order as any).total : (order.items as any[]).reduce((s, it: any) => s + ((it.price ?? it.product?.price ?? 0) * (it.quantity ?? 1)), 0) + ((order as any)?.tax ?? 0) + ((order as any)?.shipping ?? 0),
+      paymentMethod: (order as any)?.paymentMethod || 'standard',
+      paymentStatus: (order as any)?.paymentStatus || 'pending',
+    } as const;
+
     // Generate and stream PDF
     await pdfService.generateInvoice(res, invoiceData);
     
