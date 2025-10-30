@@ -31,6 +31,7 @@ import themeRoutes from './routes/themeRoutes.js';
 import paymentSettingsRoutes from './routes/paymentSettingsRoutes.js';
 import cartRoutes from './routes/cartRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 import { logger } from './utils/logger.js';
 import ShippingConfig from './models/ShippingConfig.js';
 import { apiLimiter, publicLimiter, authLimiter, adminLimiter } from './middleware/rateLimiter.js';
@@ -176,6 +177,7 @@ app.use('/api/themes', themeRoutes);
 app.use('/api/payment-settings', paymentSettingsRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
