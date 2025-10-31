@@ -118,7 +118,7 @@ const reviewSchema = new Schema<IReview, IReviewModel>(
     },
     content: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
       maxlength: 2000,
     },

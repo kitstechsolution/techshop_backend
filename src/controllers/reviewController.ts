@@ -32,14 +32,14 @@ export const createReview = async (req: AuthRequest, res: Response) => {
       });
     }
     
-    // Normalize content/comment
-    const bodyContent = content || comment;
+    // Normalize content/comment (optional)
+    const bodyContent = (content ?? '').trim() || (comment ?? '').trim();
 
-    // Validate required fields (title optional)
-    if (!rating || !bodyContent) {
+    // Validate required fields (title and content optional)
+    if (!rating) {
       return res.status(400).json({
         success: false,
-        message: 'Rating and content are required',
+        message: 'Rating is required',
       });
     }
     
@@ -105,7 +105,7 @@ export const createReview = async (req: AuthRequest, res: Response) => {
       ...(resolvedOrderId ? { order: resolvedOrderId } : {}),
       rating,
       title,
-      content: bodyContent,
+      ...(bodyContent ? { content: bodyContent } : {}),
       images: images || [],
       verified, // Verified if we found a delivered order
       status: productConfig.autoApproveReviews ? 'approved' : 'pending',
@@ -520,7 +520,17 @@ export const canUserReviewProduct = async (req: AuthRequest, res: Response) => {
         message: 'Invalid product ID',
       });
     }
+
+    // If purchase is NOT required, only block duplicates
+    if (!productConfig.requirePurchaseForReview) {
+      const existing = await Review.findOne({ user: userId, product: productId });
+      if (existing) {
+        return res.status(200).json({ success: true, data: { canReview: false, reason: 'You have already reviewed this product' } });
+      }
+      return res.status(200).json({ success: true, data: { canReview: true } });
+    }
     
+    // Otherwise, enforce purchase check
     const eligibility = await Review.canUserReview(
       new mongoose.Types.ObjectId(userId),
       new mongoose.Types.ObjectId(productId)

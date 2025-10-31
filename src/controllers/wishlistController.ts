@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { Wishlist } from '../models/Wishlist.js';
 import { Product } from '../models/Product.js';
+import { Review } from '../models/Review.js';
 import { Cart } from '../models/Cart.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
@@ -31,6 +32,30 @@ export const getWishlist = async (req: Request, res: Response): Promise<void> =>
     if (!wishlist) {
       wishlist = await Wishlist.create({ user: userId, products: [] });
       await wishlist.populate('products');
+    }
+
+    // Enrich products with live review stats (consistent with listing page)
+    try {
+      const prods: any[] = (wishlist?.products as any[]) || [];
+      const ids = prods.map(p => p?._id).filter(Boolean);
+      if (ids.length > 0) {
+        const agg = await Review.aggregate([
+          { $match: { product: { $in: ids }, status: 'approved' } },
+          { $group: { _id: '$product', averageRating: { $avg: '$rating' }, totalReviews: { $sum: 1 } } },
+        ]);
+        const statMap = new Map<string, { avg: number; count: number }>();
+        agg.forEach((s: any) => {
+          const avg = s.averageRating ? Math.round(s.averageRating * 10) / 10 : 0;
+          statMap.set(String(s._id), { avg, count: s.totalReviews || 0 });
+        });
+        (wishlist.products as any[]).forEach((p: any) => {
+          const s = statMap.get(String(p._id));
+          p.averageRating = s?.avg ?? p.averageRating ?? 0;
+          p.totalReviews = s?.count ?? p.totalReviews ?? 0;
+        });
+      }
+    } catch (e) {
+      logger.warn('Wishlist review stat enrichment failed:', e);
     }
 
     res.json(wishlist);
@@ -255,6 +280,30 @@ export const getWishlistItems = async (req: Request, res: Response): Promise<voi
         hasMore: false
       });
       return;
+    }
+
+    // Enrich with review stats
+    try {
+      const prods: any[] = (wishlist.products as any[]) || [];
+      const ids = prods.map(p => p?._id).filter(Boolean);
+      if (ids.length > 0) {
+        const agg = await Review.aggregate([
+          { $match: { product: { $in: ids }, status: 'approved' } },
+          { $group: { _id: '$product', averageRating: { $avg: '$rating' }, totalReviews: { $sum: 1 } } },
+        ]);
+        const statMap = new Map<string, { avg: number; count: number }>();
+        agg.forEach((s: any) => {
+          const avg = s.averageRating ? Math.round(s.averageRating * 10) / 10 : 0;
+          statMap.set(String(s._id), { avg, count: s.totalReviews || 0 });
+        });
+        (wishlist.products as any[]).forEach((p: any) => {
+          const s = statMap.get(String(p._id));
+          p.averageRating = s?.avg ?? p.averageRating ?? 0;
+          p.totalReviews = s?.count ?? p.totalReviews ?? 0;
+        });
+      }
+    } catch (e) {
+      logger.warn('Wishlist items stat enrichment failed:', e);
     }
 
     const totalItems = wishlist.products.length;

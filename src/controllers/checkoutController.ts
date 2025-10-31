@@ -945,7 +945,7 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
     }
 
     // Create order - map session into Order schema shape
-    const orderNumber = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const orderNumber = `ORD-${uuidv4()}`;
 
     // Map items: session.items may have different shapes. Order expects product ObjectId.
     const mappedItems = (session.items || [])
@@ -970,12 +970,18 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
     // Map shipping address fields expected by Order schema - use any to avoid TS indexing errors
     const sa: any = session.shippingAddress || {};
     const shippingAddressForOrder = {
-      street: sa.addressLine1 || sa.street || sa.line1 || sa.address || '',
-      city: sa.city || sa.town || '',
-      state: sa.state || '',
-      pincode: sa.zipCode || sa.pincode || sa.zip || sa.postalCode || '',
-      country: sa.country || 'India'
-    };
+      street: (sa.addressLine1 || sa.street || sa.line1 || sa.address || '').toString().trim(),
+      city: (sa.city || sa.town || '').toString().trim(),
+      state: (sa.state || '').toString().trim(),
+      pincode: (sa.zipCode || sa.pincode || sa.zip || sa.postalCode || '').toString().trim(),
+    } as { street: string; city: string; state: string; pincode: string };
+
+    // Validate required shipping address fields early to avoid opaque 500s
+    if (!shippingAddressForOrder.street || !shippingAddressForOrder.city || !shippingAddressForOrder.state || !shippingAddressForOrder.pincode) {
+      logger.warn('createOrder: invalid shipping address on session', { shippingAddress: session.shippingAddress });
+      res.status(400).json({ error: 'Invalid shipping address. Please reselect or edit your address.' });
+      return;
+    }
 
     // Ensure totalAmount exists (compute if needed)
     const subtotal = typeof session.subtotal === 'number' ? session.subtotal : Number(session.subtotal) || 0;
@@ -991,9 +997,16 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
       const pmAny: any = session.paymentMethod;
       const pmId = (pmAny && (pmAny.id || pmAny.type)) || (typeof pmAny === 'string' ? pmAny : undefined);
       if (pmId === 'cod' || pmId === 'cash') paymentMethodForOrder = 'cash';
-      else if (pmId === 'razorpay' || pmId === 'stripe' || pmId === 'online') paymentMethodForOrder = 'razorpay';
+      else if (
+        pmId === 'razorpay' ||
+        pmId === 'stripe' ||
+        pmId === 'online' ||
+        pmId === 'card' ||
+        pmId === 'credit_card' ||
+        pmId === 'debit_card'
+      ) paymentMethodForOrder = 'razorpay';
       else if (pmId === 'upi' || pmId === 'netbanking' || pmId === 'wallet') paymentMethodForOrder = 'standard';
-      else paymentMethodForOrder = String(pmId || 'standard');
+      else paymentMethodForOrder = 'standard';
     }
 
     const orderPayload: any = {
@@ -1020,13 +1033,27 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
     try {
       await order.save();
     } catch (saveErr) {
-      logger.error('createOrder: order.save failed', { error: (saveErr as any)?.message ?? String(saveErr), orderPayload });
-      throw saveErr;
+      const errMsg = (saveErr as any)?.message ?? String(saveErr);
+      logger.error('createOrder: order.save failed', { error: errMsg, orderPayload });
+      // Surface validation/details to client for easier debugging instead of generic 500
+      if ((saveErr as any)?.name === 'ValidationError' || /E11000 duplicate key/.test(errMsg)) {
+        res.status(400).json({ error: 'Order validation failed', details: errMsg });
+        return;
+      }
+      res.status(500).json({ error: 'Failed to create order', details: errMsg });
+      return;
     }
 
     // Mark session as completed
     session.status = 'completed';
     await session.save();
+
+    // Clear user's cart after successful order to keep UI and data consistent
+    try {
+      await Cart.findOneAndDelete({ user: userId });
+    } catch (clearErr) {
+      logger.warn('createOrder: failed to clear user cart after order', { error: (clearErr as any)?.message ?? String(clearErr) });
+    }
 
     // Return plain object with `id` for frontend convenience
     const orderObj = order.toObject({ getters: true });
