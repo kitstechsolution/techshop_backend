@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Product } from '../models/Product.js';
 import { Order } from '../models/Order.js';
 import { Wishlist } from '../models/Wishlist.js';
+import { Review } from '../models/Review.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 
@@ -115,7 +116,7 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
     }
 
     // Execute query with pagination
-    const [products, total] = await Promise.all([
+    const [productsRaw, total] = await Promise.all([
       Product.find(filter)
         .sort(sortOption)
         .skip(skip)
@@ -123,6 +124,37 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
         .lean(),
       Product.countDocuments(filter)
     ]);
+
+    // Attach live review stats from Review model to ensure listing shows accurate ratings
+    const productIds = productsRaw.map((p: any) => p._id).filter(Boolean);
+    let products = productsRaw;
+    if (productIds.length > 0) {
+      const reviewAgg = await Review.aggregate([
+        { $match: { product: { $in: productIds }, status: 'approved' } },
+        {
+          $group: {
+            _id: '$product',
+            averageRating: { $avg: '$rating' },
+            totalReviews: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const statMap = new Map<string, { avg: number; count: number }>();
+      reviewAgg.forEach((s: any) => {
+        const avg = s.averageRating ? Math.round(s.averageRating * 10) / 10 : 0;
+        statMap.set(String(s._id), { avg, count: s.totalReviews || 0 });
+      });
+
+      products = productsRaw.map((p: any) => {
+        const s = statMap.get(String(p._id));
+        return {
+          ...p,
+          averageRating: s?.avg ?? p.averageRating ?? 0,
+          totalReviews: s?.count ?? p.totalReviews ?? 0,
+        };
+      });
+    }
 
     // Get available filter options for frontend
     const [categories, priceRange] = await Promise.all([
@@ -209,7 +241,7 @@ export const getProductsByCategory = async (req: Request, res: Response): Promis
         break;
     }
 
-    const [products, total] = await Promise.all([
+    const [productsRaw, total] = await Promise.all([
       Product.find({ category })
         .sort(sortOption)
         .skip(skip)
@@ -217,6 +249,25 @@ export const getProductsByCategory = async (req: Request, res: Response): Promis
         .lean(),
       Product.countDocuments({ category })
     ]);
+
+    // Enrich with review stats to ensure accurate ratings
+    const ids = productsRaw.map((p: any) => p._id).filter(Boolean);
+    let products = productsRaw;
+    if (ids.length > 0) {
+      const reviewAgg = await Review.aggregate([
+        { $match: { product: { $in: ids }, status: 'approved' } },
+        { $group: { _id: '$product', averageRating: { $avg: '$rating' }, totalReviews: { $sum: 1 } } },
+      ]);
+      const statMap = new Map<string, { avg: number; count: number }>();
+      reviewAgg.forEach((s: any) => {
+        const avg = s.averageRating ? Math.round(s.averageRating * 10) / 10 : 0;
+        statMap.set(String(s._id), { avg, count: s.totalReviews || 0 });
+      });
+      products = productsRaw.map((p: any) => {
+        const s = statMap.get(String(p._id));
+        return { ...p, averageRating: s?.avg ?? p.averageRating ?? 0, totalReviews: s?.count ?? p.totalReviews ?? 0 };
+      });
+    }
 
     res.json({
       category,

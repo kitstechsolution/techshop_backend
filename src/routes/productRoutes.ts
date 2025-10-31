@@ -15,7 +15,7 @@ import {
   trackProductView,
   isInWishlist
 } from '../controllers/productController.js';
-import { createReview, getProductReviews, voteOnReview } from '../controllers/reviewController.js';
+import { createReview, getProductReviews, getProductReviewStats, voteOnReview, canUserReviewProduct } from '../controllers/reviewController.js';
 import { auth, optionalAuth } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -65,10 +65,12 @@ router.post('/:id/track-view', optionalAuth, trackProductView);
 // Review routes
 // Get product reviews (public)
 router.get('/:productId/reviews', getProductReviews);
-
+// Get product review stats (public)
+router.get('/:productId/reviews/stats', getProductReviewStats);
+// Can user review (protected)
+router.get('/:productId/can-review', auth, canUserReviewProduct);
 // Submit review (protected)
 router.post('/:productId/reviews', auth, createReview);
-
 // Vote on review (protected) - helpful/not helpful
 router.post('/:productId/reviews/:reviewId/vote', auth, voteOnReview);
 

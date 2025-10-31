@@ -3,7 +3,7 @@ import mongoose, { Document, Schema, Model } from 'mongoose';
 export interface IReview extends Document {
   product: mongoose.Types.ObjectId;
   user: mongoose.Types.ObjectId;
-  order: mongoose.Types.ObjectId;
+  order?: mongoose.Types.ObjectId;
   rating: number; // 1-5
   title: string;
   content: string;
@@ -98,7 +98,7 @@ const reviewSchema = new Schema<IReview, IReviewModel>(
     order: {
       type: Schema.Types.ObjectId,
       ref: 'Order',
-      required: true,
+      required: false,
     },
     rating: {
       type: Number,
@@ -112,7 +112,7 @@ const reviewSchema = new Schema<IReview, IReviewModel>(
     },
     title: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
       maxlength: 100,
     },
@@ -404,26 +404,29 @@ reviewSchema.statics.canUserReview = async function (
   };
 };
 
-// Pre-save hook: Update product rating when review is approved
+// Post-save: update product aggregated rating fields when an approved review exists
 reviewSchema.post('save', async function (doc) {
   if (doc.status === 'approved') {
     const Product = mongoose.model('Product');
     const stats = await Review.getProductStats(doc.product);
-    
     await Product.findByIdAndUpdate(doc.product, {
+      averageRating: stats.averageRating,
+      totalReviews: stats.totalReviews,
+      // maintain legacy fields if present
       rating: stats.averageRating,
       numReviews: stats.totalReviews,
     });
   }
 });
 
-// Pre-remove hook: Update product rating when review is deleted
+// Post-delete: update product aggregates if an approved review was removed
 reviewSchema.post('findOneAndDelete', async function (doc) {
   if (doc && doc.status === 'approved') {
     const Product = mongoose.model('Product');
     const stats = await Review.getProductStats(doc.product);
-    
     await Product.findByIdAndUpdate(doc.product, {
+      averageRating: stats.averageRating,
+      totalReviews: stats.totalReviews,
       rating: stats.averageRating,
       numReviews: stats.totalReviews,
     });

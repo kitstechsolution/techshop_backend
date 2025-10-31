@@ -134,7 +134,8 @@ export const product = {
   pageSizeOptions: [10, 20, 50, 100],
   defaultPageSize: getNumberEnv('DEFAULT_PAGE_SIZE', 20),
   enabledReviews: getBooleanEnv('ENABLED_REVIEWS', true),
-  requirePurchaseForReview: getBooleanEnv('REQUIRE_PURCHASE_FOR_REVIEW', true),
+  requirePurchaseForReview: getBooleanEnv('REQUIRE_PURCHASE_FOR_REVIEW', false),
+  autoApproveReviews: getBooleanEnv('AUTO_APPROVE_REVIEWS', getEnv('NODE_ENV', 'development') !== 'production'),
 };
 
 // Shipping Configuration

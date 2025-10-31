@@ -4,6 +4,7 @@ import { Product } from '../models/Product.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
+import { product as productConfig } from '../config/config.js';
 
 // @desc    Create a review
 // @route   POST /api/products/:productId/reviews
@@ -12,7 +13,7 @@ export const createReview = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const { productId } = req.params;
-    const { rating, title, content, orderId, images } = req.body;
+    const { rating, title, content, orderId, images, comment } = req.body;
     
     // Validate product ID
     if (!mongoose.Types.ObjectId.isValid(productId)) {
@@ -31,11 +32,14 @@ export const createReview = async (req: AuthRequest, res: Response) => {
       });
     }
     
-    // Validate required fields
-    if (!rating || !title || !content || !orderId) {
+    // Normalize content/comment
+    const bodyContent = content || comment;
+
+    // Validate required fields (title optional)
+    if (!rating || !bodyContent) {
       return res.status(400).json({
         success: false,
-        message: 'Rating, title, content, and order ID are required',
+        message: 'Rating and content are required',
       });
     }
     
@@ -47,46 +51,64 @@ export const createReview = async (req: AuthRequest, res: Response) => {
       });
     }
     
-    // Check if user can review this product
-    const eligibility = await Review.canUserReview(
-      new mongoose.Types.ObjectId(userId),
-      new mongoose.Types.ObjectId(productId)
-    );
-    
-    if (!eligibility.canReview) {
-      return res.status(403).json({
-        success: false,
-        message: eligibility.reason,
-      });
+    // If configured, require verified purchase to allow reviewing
+    if (productConfig.requirePurchaseForReview) {
+      const eligibility = await Review.canUserReview(
+        new mongoose.Types.ObjectId(userId),
+        new mongoose.Types.ObjectId(productId)
+      );
+      if (!eligibility.canReview) {
+        return res.status(403).json({
+          success: false,
+          message: eligibility.reason,
+        });
+      }
     }
     
-    // Verify the order belongs to the user
+    // Determine order (optional) and verification status
     const Order = mongoose.model('Order');
-    const order = await Order.findOne({
-      _id: orderId,
-      user: userId,
-      'items.product': productId,
-      status: 'delivered',
-    });
-    
-    if (!order) {
-      return res.status(403).json({
-        success: false,
-        message: 'Invalid order or product not in order',
+    let verified = false;
+    let resolvedOrderId: mongoose.Types.ObjectId | undefined = undefined;
+
+    if (orderId) {
+      const order = await Order.findOne({
+        _id: orderId,
+        user: userId,
+        'items.product': productId,
+        status: 'delivered',
       });
+      if (!order) {
+        return res.status(403).json({
+          success: false,
+          message: 'Invalid order or product not in order',
+        });
+      }
+      verified = true;
+      resolvedOrderId = order._id as mongoose.Types.ObjectId;
+    } else {
+      // Try to auto-resolve a delivered order for this user and product
+      const deliveredOrder = await Order.findOne({
+        user: userId,
+        'items.product': productId,
+        status: 'delivered',
+      });
+      if (deliveredOrder) {
+        verified = true;
+        resolvedOrderId = deliveredOrder._id as mongoose.Types.ObjectId;
+      }
     }
-    
+
     // Create review
     const review = await Review.create({
       product: productId,
       user: userId,
-      order: orderId,
+      ...(resolvedOrderId ? { order: resolvedOrderId } : {}),
       rating,
       title,
-      content,
+      content: bodyContent,
       images: images || [],
-      verified: true, // Verified purchase
-      status: 'pending', // Pending moderation
+      verified, // Verified if we found a delivered order
+      status: productConfig.autoApproveReviews ? 'approved' : 'pending',
     });
     
     await review.populate('user', 'firstName lastName');
