@@ -36,6 +36,7 @@ import { logger } from './utils/logger.js';
 import ShippingConfig from './models/ShippingConfig.js';
 import { apiLimiter, publicLimiter, authLimiter, adminLimiter } from './middleware/rateLimiter.js';
 import { verifyEmailConfig } from './services/emailService.js';
+import { initializeShipping } from './services/initService.js';
 
 // Create Express app
 const app = express();
@@ -47,6 +48,11 @@ connectDB();
 verifyEmailConfig().catch(err => {
   logger.warn('Email service not configured or verification failed:', err.message);
   logger.warn('Email features will not work until properly configured.');
+});
+
+// Initialize shipping providers at startup (non-blocking)
+initializeShipping().catch(err => {
+  logger.warn('Shipping initialization failed (will be initialized after admin saves settings):', err?.message || err);
 });
 
 // Middleware

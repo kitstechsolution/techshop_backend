@@ -8,6 +8,7 @@ import shippingService, {
   ShipyaariProvider
 } from '../services/ShippingService.js';
 import { logger } from '../utils/logger.js';
+import { Order } from '../models/Order.js';
 
 /**
  * Extended Request with authenticated user
@@ -467,6 +468,21 @@ export const processWebhook = async (req: Request, res: Response): Promise<void>
       return;
     }
     
+    // Optional shared-secret verification (simple, per-project)
+    const providerSecrets: Record<string, string | undefined> = {
+      shiprocket: process.env.SHIPROCKET_WEBHOOK_SECRET,
+      shipway: process.env.SHIPWAY_WEBHOOK_SECRET,
+      shipyaari: process.env.SHIPYAARI_WEBHOOK_SECRET,
+    };
+    const expectedSecret = providerSecrets[providerId] || process.env.SHIPPING_WEBHOOK_SECRET;
+    const providedSecret = req.headers['x-webhook-secret'] as string | undefined;
+    if (expectedSecret && expectedSecret.length > 0) {
+      if (!providedSecret || providedSecret !== expectedSecret) {
+        res.status(401).json({ error: 'Invalid webhook secret' });
+        return;
+      }
+    }
+    
     // Get provider instance
     const shippingConfig = await ShippingConfig.findOne();
     if (!shippingConfig) {
@@ -488,7 +504,7 @@ export const processWebhook = async (req: Request, res: Response): Promise<void>
     // Convert config fields to simple key-value pairs
     const providerConfig: Record<string, string> = {};
     for (const [key, field] of Object.entries(aggregator.configFields)) {
-      providerConfig[key] = field.value;
+      providerConfig[key] = field.value as string;
     }
     
     // Add webhook URL if configured
@@ -514,10 +530,70 @@ export const processWebhook = async (req: Request, res: Response): Promise<void>
         return;
     }
     
-    // Process webhook event
-    provider.processWebhookEvent(webhookData);
-    
-    // Return a 200 response to acknowledge receipt of the webhook
+    // Provider-specific logging (non-blocking)
+    try { provider.processWebhookEvent(webhookData); } catch (e) { logger.warn('Provider webhook handler error (non-fatal)', e); }
+
+    // Normalize event and update order by tracking number or order id
+    const evt: any = webhookData || {};
+    const data: any = evt.data || evt.payload || evt;
+    const eventType = (evt.event || evt.type || evt.status || '').toString().toLowerCase();
+    const awb = (data.awb_code || data.awb || data.tracking_number || evt.awb || evt.tracking_number || '').toString();
+    const orderIdHint = (data.order_id || evt.order_id || evt.orderId || '').toString();
+
+    // Resolve target order
+    let order = null as any;
+    if (awb) {
+      order = await Order.findOne({ trackingNumber: awb });
+    }
+    if (!order && orderIdHint) {
+      order = await Order.findOne({ orderNumber: orderIdHint });
+    }
+
+    if (!order) {
+      // Acknowledge to provider even if we can't match now (idempotent); log for follow-up
+      logger.warn('Webhook received but order not found', { providerId, awb, orderIdHint, eventType });
+      res.status(200).json({ success: true, unmatched: true });
+      return;
+    }
+
+    // Map provider status to internal order status
+    const statusStr = (data.status || data.current_status || eventType || '').toString().toLowerCase();
+    let newStatus: 'shipped' | 'delivered' | 'cancelled' | null = null;
+    if (providerId === 'shiprocket') {
+      if (eventType.includes('delivered') || statusStr.includes('delivered')) newStatus = 'delivered';
+      else if (eventType.includes('dispatched') || statusStr.includes('in transit') || statusStr.includes('out for delivery')) newStatus = 'shipped';
+      else if (eventType.includes('cancelled') || statusStr.includes('cancelled')) newStatus = 'cancelled';
+    } else if (providerId === 'shipway') {
+      if (statusStr.includes('delivered')) newStatus = 'delivered';
+      else if (statusStr.includes('out_for_delivery') || statusStr.includes('in transit') || statusStr.includes('picked')) newStatus = 'shipped';
+      else if (statusStr.includes('cancel')) newStatus = 'cancelled';
+    } else if (providerId === 'shipyaari') {
+      if (statusStr.includes('delivered')) newStatus = 'delivered';
+      else if (statusStr.includes('in transit') || statusStr.includes('picked') || statusStr.includes('out for delivery')) newStatus = 'shipped';
+      else if (statusStr.includes('cancel')) newStatus = 'cancelled';
+    }
+
+    // Update order fields
+    if (awb && !order.trackingNumber) order.trackingNumber = awb;
+    order.shippingProvider = providerId;
+    if (newStatus === 'delivered') {
+      order.status = 'delivered';
+      order.actualDeliveryDate = new Date();
+    } else if (newStatus === 'shipped') {
+      order.status = order.status === 'pending' ? 'processing' : 'shipped';
+      const etaDays = Number(data.estimated_delivery_days || data.etd || 0);
+      if (etaDays && !isNaN(etaDays)) {
+        const est = new Date();
+        est.setDate(est.getDate() + etaDays);
+        order.estimatedDeliveryDate = est;
+      }
+    } else if (newStatus === 'cancelled') {
+      order.status = 'cancelled';
+    }
+
+    await order.save();
+
+    // Acknowledge receipt
     res.status(200).json({ success: true });
   } catch (error) {
     logger.error('Error processing webhook:', error);

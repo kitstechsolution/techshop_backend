@@ -21,6 +21,7 @@ export const initializeShipping = async (): Promise<void> => {
             name: 'Shiprocket',
             description: 'Leading shipping aggregator with 25+ courier partners and extensive reach',
             enabled: false,
+            priority: 1,
             configFields: {
               email: {
                 name: 'Email',
@@ -60,6 +61,7 @@ export const initializeShipping = async (): Promise<void> => {
             name: 'Shipway',
             description: 'Excellent post-purchase experience with fraud detection and NDR management',
             enabled: false,
+            priority: 2,
             configFields: {
               username: {
                 name: 'Username',
@@ -92,6 +94,7 @@ export const initializeShipping = async (): Promise<void> => {
             name: 'Shipyaari',
             description: '29,000+ pincode coverage with AI-driven courier recommendations',
             enabled: false,
+            priority: 3,
             configFields: {
               userId: {
                 name: 'User ID',
@@ -121,6 +124,7 @@ export const initializeShipping = async (): Promise<void> => {
           }
         ],
         defaultAggregator: process.env.DEFAULT_SHIPPING_AGGREGATOR || 'shiprocket',
+        selectionStrategy: (process.env.SELECTION_STRATEGY as any) || 'priority',
         enablePincodeValidation: process.env.ENABLE_PINCODE_VALIDATION !== 'false',
         defaultShippingCost: parseInt(process.env.DEFAULT_SHIPPING_COST || '50', 10),
         freeShippingThreshold: parseInt(process.env.FREE_SHIPPING_THRESHOLD || '500', 10),

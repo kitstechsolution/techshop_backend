@@ -1,6 +1,50 @@
 import { IShippingAggregator, IPickupLocation } from '../models/ShippingConfig.js';
 import { logger } from '../utils/logger.js';
 
+// HTTP helpers with timeout and retries for provider calls
+const DEFAULT_TIMEOUT_MS = Number(process.env.SHIPPING_HTTP_TIMEOUT_MS || 10000);
+const DEFAULT_MAX_RETRIES = Number(process.env.SHIPPING_HTTP_MAX_RETRIES || 2);
+const DEFAULT_BACKOFF_MS = Number(process.env.SHIPPING_HTTP_BACKOFF_MS || 500);
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, init: any = {}, opts?: { timeoutMs?: number; retries?: number; backoffMs?: number }): Promise<Response> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxRetries = opts?.retries ?? DEFAULT_MAX_RETRIES;
+  const backoffMs = opts?.backoffMs ?? DEFAULT_BACKOFF_MS;
+
+  let attempt = 0;
+  while (true) {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(id);
+      if (res.ok) return res;
+      // Retry on 5xx, 429, 408
+      if (attempt < maxRetries && (res.status >= 500 || res.status === 429 || res.status === 408)) {
+        attempt++;
+        const jitter = Math.floor(Math.random() * 100);
+        await sleep(backoffMs * Math.pow(2, attempt - 1) + jitter);
+        continue;
+      }
+      return res; // caller will handle not ok
+    } catch (err: any) {
+      clearTimeout(id);
+      const isAbort = err && (err.name === 'AbortError' || err.code === 'ABORT_ERR');
+      if (attempt < maxRetries && (isAbort || err?.code === 'ECONNRESET' || err?.code === 'ETIMEDOUT')) {
+        attempt++;
+        const jitter = Math.floor(Math.random() * 100);
+        await sleep(backoffMs * Math.pow(2, attempt - 1) + jitter);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 /**
  * Interface for shipping request
  */
@@ -287,7 +331,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
 
     try {
       // Authenticate and get new token
-      const response = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
+      const response = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -341,7 +385,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         order_id: request.orderId
       });
       
-      const response = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/serviceability?${queryParams}`, {
+      const response = await fetchWithRetry(`https://apiv2.shiprocket.in/v1/external/courier/serviceability?${queryParams}`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -454,7 +498,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       const finalOrderDetails = { ...orderDetails, ...conditionalProps };
       
       // Create the order first
-      const createOrderResponse = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+      const createOrderResponse = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -488,7 +532,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       }
       
       // Now generate the shipment using the created order
-      const shipmentResponse = await fetch('https://apiv2.shiprocket.in/v1/external/courier/generate/pickup', {
+      const shipmentResponse = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/courier/generate/pickup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -496,7 +540,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         },
         body: JSON.stringify({
           shipment_id: orderData.shipment_id,
-          courier_id: service
+          courier_id: ((): any => { const n = Number(service); return isNaN(n) ? service : n; })()
         })
       });
 
@@ -543,7 +587,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
     try {
       const token = await this.authenticate();
       
-      const response = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/track/awb/${trackingId}`, {
+      const response = await fetchWithRetry(`https://apiv2.shiprocket.in/v1/external/courier/track/awb/${trackingId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -639,7 +683,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       const token = await this.authenticate();
       
       // First, we need to find the order/shipment ID from the AWB code
-      const trackResponse = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/track/awb/${trackingId}`, {
+      const trackResponse = await fetchWithRetry(`https://apiv2.shiprocket.in/v1/external/courier/track/awb/${trackingId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -704,7 +748,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
     try {
       const token = await this.authenticate();
       
-      const response = await fetch('https://apiv2.shiprocket.in/v1/external/settings/company/pickup', {
+      const response = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/settings/company/pickup', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -762,7 +806,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
         pin_code: location.pincode
       };
       
-      const response = await fetch('https://apiv2.shiprocket.in/v1/external/settings/company/addpickup', {
+      const response = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/settings/company/addpickup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -810,7 +854,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       const token = await this.authenticate();
       
       // First, get the order details from the original shipment
-      const trackResponse = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/track/awb/${originalTrackingId}`, {
+      const trackResponse = await fetchWithRetry(`https://apiv2.shiprocket.in/v1/external/courier/track/awb/${originalTrackingId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -830,7 +874,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       }
       
       // Create return order
-      const createReturnResponse = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/return', {
+      const createReturnResponse = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/orders/create/return', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -855,7 +899,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       const returnShipmentId = returnData.shipment_id;
 
       // Generate return label
-      const generateLabelResponse = await fetch('https://apiv2.shiprocket.in/v1/external/courier/generate/label', {
+      const generateLabelResponse = await fetchWithRetry('https://apiv2.shiprocket.in/v1/external/courier/generate/label', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -966,7 +1010,7 @@ export class ShiprocketProvider extends ShippingAggregatorProvider {
       
       const queryString = queryParams.toString();
       
-      const response = await fetch(`https://apiv2.shiprocket.in/v1/external/courier/international/serviceability?${queryString}`, {
+      const response = await fetchWithRetry(`https://apiv2.shiprocket.in/v1/external/courier/international/serviceability?${queryString}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -1059,7 +1103,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         height: request.packageDimensions?.height || request.dimensions?.height || 10
       };
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1161,7 +1205,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         });
       }
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1212,7 +1256,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
     try {
       const apiUrl = `${this.getApiBaseUrl()}/tracking`;
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1270,7 +1314,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
       };
 
       // Make the API request to cancel the shipment
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1360,7 +1404,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
     try {
       const apiUrl = `${this.getApiBaseUrl()}/pickup/locations`;
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1419,7 +1463,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         is_default: location.isDefault ? 1 : 0
       };
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1502,7 +1546,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         });
       }
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1603,7 +1647,7 @@ export class ShipwayProvider extends ShippingAggregatorProvider {
         comments: comments || `Auto-requesting redelivery after NDR: ${reason}`
       };
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1699,7 +1743,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       
       logger.debug('Shipyaari rate request data:', requestData);
 
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1832,7 +1876,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       
       logger.debug('Shipyaari create order request:', orderData);
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1939,7 +1983,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
         awb: trackingId // For newer API endpoints
       };
       
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -2105,7 +2149,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       };
 
       // Verify the tracking number first
-      const verifyResponse = await fetch(verifyTrackingUrl, {
+      const verifyResponse = await fetchWithRetry(verifyTrackingUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -2163,7 +2207,7 @@ export class ShipyaariProvider extends ShippingAggregatorProvider {
       };
 
       // Make the API request to cancel the shipment
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

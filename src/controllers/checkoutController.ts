@@ -7,6 +7,9 @@ import { Cart } from '../models/Cart.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Types } from 'mongoose';
 import { logger } from '../utils/logger.js';
+import { shipping as shippingConfig } from '../config/config.js';
+import shippingService from '../services/ShippingService.js';
+import ShippingConfig from '../models/ShippingConfig.js';
 
 // Extend Request to include user
 interface AuthRequest extends Request {
@@ -17,6 +20,167 @@ interface AuthRequest extends Request {
  * Get or create checkout session
  * GET /api/checkout/session
  */
+// Helper: compute a single automatic shipping method using configured providers when available
+async function computeAutoShippingMethod(session: any): Promise<{ id: string; name: string; description: string; cost: number; estimatedDays: number; carrier: string; }>{
+  try {
+    // Load shipping config for strategy and thresholds
+    const cfg = await ShippingConfig.findOne();
+    const strategy: 'priority' | 'cheapest' | 'fastest' = (cfg?.toObject()?.selectionStrategy as any) || 'priority';
+    const freeThreshold: number = typeof cfg?.freeShippingThreshold === 'number' ? cfg!.freeShippingThreshold : (shippingConfig.freeShippingThreshold ?? 500);
+
+    // Fallback function from static config
+    const fallbackFromConfig = () => {
+      const methods = shippingConfig.methods || [];
+      const defaultMethod = methods.find((m: any) => m.id === shippingConfig.defaultShippingMethod) || methods[0] || {
+        id: 'standard', name: 'Standard Shipping', description: 'Delivery in 3-5 business days', price: 50, estimatedDays: 5,
+      };
+      const cost = (typeof session.subtotal === 'number' ? session.subtotal : 0) >= freeThreshold ? 0 : (defaultMethod.price ?? 50);
+      return { id: defaultMethod.id, name: defaultMethod.name, description: defaultMethod.description, cost, estimatedDays: defaultMethod.estimatedDays, carrier: 'Automated' };
+    };
+
+    // If no providers configured, return fallback
+    // Build a minimal ShippingRequest
+    const deliveryPincode = session?.shippingAddress?.zipCode || session?.shippingAddress?.pincode || '';
+    if (!deliveryPincode) return fallbackFromConfig();
+
+    // Determine pickup pincode: prefer default pickup location from config
+    let pickupPincode = '';
+    const pickup = cfg?.pickupLocations?.find((p: any) => p.isDefault) || cfg?.pickupLocations?.[0];
+    pickupPincode = pickup?.pincode || '110001'; // default to New Delhi
+
+    // Rough weight: 500g per item (no product weight in schema); cap minimum to 500g
+    const itemCount = Array.isArray(session.items) ? session.items.reduce((n: number, it: any) => n + (Number(it.quantity) || 1), 0) : 1;
+    const weight = Math.max(500, itemCount * 500); // grams
+
+    const request = {
+      orderId: `auto-${session.sessionId}`,
+      pickupPincode,
+      deliveryPincode,
+      weight,
+      invoiceValue: typeof session.subtotal === 'number' ? session.subtotal : Number(session.subtotal) || 0,
+      paymentMethod: (session?.paymentMethod?.id === 'cod' || session?.paymentMethod?.type === 'cod') ? 'cod' : 'prepaid',
+      customerName: session?.shippingAddress?.fullName || 'Customer',
+      customerAddress: session?.shippingAddress?.addressLine1 || '',
+      customerCity: session?.shippingAddress?.city || '',
+      customerState: session?.shippingAddress?.state || '',
+      customerPhone: session?.shippingAddress?.phone || '',
+      pickupLocation: pickup?.name || 'Default Warehouse',
+      pickupAddress: pickup?.address || '',
+      pickupCity: pickup?.city || '',
+      pickupState: pickup?.state || '',
+    } as any;
+
+    // Get rates from all enabled providers
+    const ratesMap = await shippingService.getAllRates(request);
+    if (!ratesMap || ratesMap.size === 0) return fallbackFromConfig();
+
+    // Flatten
+    const all: Array<{ provider: string; rate: any }> = [];
+    for (const [prov, rates] of ratesMap.entries()) {
+      for (const r of (rates || [])) all.push({ provider: prov, rate: r });
+    }
+    if (all.length === 0) return fallbackFromConfig();
+
+    // Apply free shipping threshold regardless of provider
+    const overFree = (typeof session.subtotal === 'number' ? session.subtotal : 0) >= freeThreshold;
+
+    // Select by strategy
+    let chosen: { provider: string; rate: any } | null = null;
+
+    if (strategy === 'cheapest') {
+      chosen = all.reduce((min, cur) => (min == null || (cur.rate.cost ?? Infinity) < (min.rate.cost ?? Infinity) ? cur : min), null as any);
+    } else if (strategy === 'fastest') {
+      chosen = all.reduce((min, cur) => (min == null || (cur.rate.estimatedDeliveryDays ?? 9999) < (min.rate.estimatedDeliveryDays ?? 9999) ? cur : min), null as any);
+    } else {
+      // priority
+      const enabled = (cfg?.aggregators || []).filter((a: any) => a.enabled);
+      const byPriority = enabled.sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0));
+      for (const agg of byPriority) {
+        const provRates = all.filter(ar => ar.provider === agg.id);
+        if (provRates.length > 0) {
+          // pick cheapest within provider
+          chosen = provRates.reduce((min, cur) => (min == null || (cur.rate.cost ?? Infinity) < (min.rate.cost ?? Infinity) ? cur : min), null as any);
+          break;
+        }
+      }
+      // If still not chosen, fallback to cheapest overall
+      if (!chosen) chosen = all.reduce((min, cur) => (min == null || (cur.rate.cost ?? Infinity) < (min.rate.cost ?? Infinity) ? cur : min), null as any);
+    }
+
+    const eta = chosen?.rate?.estimatedDeliveryDays ?? 5;
+    const baseCost = chosen?.rate?.cost ?? (shippingConfig.methods?.[0]?.price ?? 50);
+
+    return {
+      id: 'auto',
+      name: 'Standard Shipping',
+      description: `Estimated delivery in ${eta} business days`,
+      cost: overFree ? 0 : baseCost,
+      estimatedDays: eta,
+      carrier: 'Automated'
+    };
+  } catch (e) {
+    logger.warn('computeAutoShippingMethod failed; using fallback config', e);
+    const methods = shippingConfig.methods || [];
+    const defaultMethod = methods.find((m: any) => m.id === shippingConfig.defaultShippingMethod) || methods[0] || {
+      id: 'standard', name: 'Standard Shipping', description: 'Delivery in 3-5 business days', price: 50, estimatedDays: 5,
+    };
+    const cost = (defaultMethod.price ?? 50);
+    return { id: defaultMethod.id, name: defaultMethod.name, description: defaultMethod.description, cost, estimatedDays: defaultMethod.estimatedDays, carrier: 'Automated' };
+  }
+}
+
+// Helper: choose best provider + service for shipment creation (providerId and rate)
+async function computeBestProviderChoice(session: any): Promise<{ provider: string; rate: any } | null> {
+  const cfg = await ShippingConfig.findOne();
+  const strategy: 'priority' | 'cheapest' | 'fastest' = (cfg?.toObject()?.selectionStrategy as any) || 'priority';
+  const deliveryPincode = session?.shippingAddress?.zipCode || session?.shippingAddress?.pincode || '';
+  if (!deliveryPincode) return null;
+  const pickup = cfg?.pickupLocations?.find((p: any) => p.isDefault) || cfg?.pickupLocations?.[0];
+  const pickupPincode = pickup?.pincode || '110001';
+  const itemCount = Array.isArray(session.items) ? session.items.reduce((n: number, it: any) => n + (Number(it.quantity) || 1), 0) : 1;
+  const weight = Math.max(500, itemCount * 500);
+  const request = {
+    orderId: `auto-${session.sessionId}`,
+    pickupPincode,
+    deliveryPincode,
+    weight,
+    invoiceValue: typeof session.subtotal === 'number' ? session.subtotal : Number(session.subtotal) || 0,
+    paymentMethod: (session?.paymentMethod?.id === 'cod' || session?.paymentMethod?.type === 'cod') ? 'cod' : 'prepaid',
+    customerName: session?.shippingAddress?.fullName || 'Customer',
+    customerAddress: session?.shippingAddress?.addressLine1 || '',
+    customerCity: session?.shippingAddress?.city || '',
+    customerState: session?.shippingAddress?.state || '',
+    customerPhone: session?.shippingAddress?.phone || '',
+    pickupLocation: pickup?.name || 'Default Warehouse',
+    pickupAddress: pickup?.address || '',
+    pickupCity: pickup?.city || '',
+    pickupState: pickup?.state || '',
+  } as any;
+  const ratesMap = await shippingService.getAllRates(request);
+  if (!ratesMap || ratesMap.size === 0) return null;
+  const all: Array<{ provider: string; rate: any }> = [];
+  for (const [prov, rates] of ratesMap.entries()) {
+    for (const r of (rates || [])) all.push({ provider: prov, rate: r });
+  }
+  if (all.length === 0) return null;
+  if (strategy === 'cheapest') {
+    return all.reduce((min, cur) => (min == null || (cur.rate.cost ?? Infinity) < (min.rate.cost ?? Infinity) ? cur : min), null as any);
+  } else if (strategy === 'fastest') {
+    return all.reduce((min, cur) => (min == null || (cur.rate.estimatedDeliveryDays ?? 9999) < (min.rate.estimatedDeliveryDays ?? 9999) ? cur : min), null as any);
+  } else {
+    const enabled = (cfg?.aggregators || []).filter((a: any) => a.enabled);
+    const byPriority = enabled.sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0));
+    for (const agg of byPriority) {
+      const provRates = all.filter(ar => ar.provider === agg.id);
+      if (provRates.length > 0) {
+        const chosen = provRates.reduce((min, cur) => (min == null || (cur.rate.cost ?? Infinity) < (min.rate.cost ?? Infinity) ? cur : min), null as any);
+        return chosen;
+      }
+    }
+    return all.reduce((min, cur) => (min == null || (cur.rate.cost ?? Infinity) < (min.rate.cost ?? Infinity) ? cur : min), null as any);
+  }
+}
+
 export const getCheckoutSession = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user._id;
@@ -163,6 +327,14 @@ export const updateShippingAddress = async (req: AuthRequest, res: Response): Pr
       session.billingAddress = session.shippingAddress;
     }
 
+    // Auto-select a shipping method server-side (try providers; fallback to config)
+    const autoMethod = await computeAutoShippingMethod(session);
+    session.shippingMethod = autoMethod as any;
+    session.shipping = autoMethod.cost;
+    if (typeof (session as any).calculateTotals === 'function') {
+      (session as any).calculateTotals();
+    }
+
     // Extend expiration
     session.expiresAt = new Date(Date.now() + 30 * 60 * 1000);
     await session.save();
@@ -206,6 +378,14 @@ export const addShippingAddress = async (req: AuthRequest, res: Response): Promi
     session.shippingAddress = addressData;
     if (session.useSameAddress) {
       session.billingAddress = addressData;
+    }
+
+    // Auto-select a shipping method server-side (try providers; fallback to config)
+    const autoMethod = await computeAutoShippingMethod(session);
+    session.shippingMethod = autoMethod as any;
+    session.shipping = autoMethod.cost;
+    if (typeof (session as any).calculateTotals === 'function') {
+      (session as any).calculateTotals();
     }
 
     // Extend expiration
@@ -342,42 +522,19 @@ export const getShippingMethods = async (req: AuthRequest, res: Response): Promi
       return;
     }
 
-    // Mock shipping methods (in production, integrate with shipping API)
-    const shippingMethods = [
-      {
-        id: 'standard',
-        name: 'Standard Shipping',
-        description: 'Delivery in 5-7 business days',
-        cost: 50,
-        estimatedDays: 7,
-        carrier: 'India Post'
-      },
-      {
-        id: 'express',
-        name: 'Express Shipping',
-        description: 'Delivery in 2-3 business days',
-        cost: 150,
-        estimatedDays: 3,
-        carrier: 'Blue Dart'
-      },
-      {
-        id: 'overnight',
-        name: 'Overnight Delivery',
-        description: 'Next day delivery',
-        cost: 300,
-        estimatedDays: 1,
-        carrier: 'DHL'
-      }
-    ];
+    // Compute and persist a single shipping method (providers if available)
+    const computed = await computeAutoShippingMethod(session);
 
-    // Free shipping for orders above threshold
-    const freeShippingThreshold = 1000;
-    if (session.subtotal >= freeShippingThreshold) {
-      shippingMethods[0].cost = 0;
-      shippingMethods[0].description = 'Free standard shipping (5-7 business days)';
+    // Persist on session to unblock checkout flow
+    session.shippingMethod = computed as any;
+    session.shipping = computed.cost;
+    if (typeof (session as any).calculateTotals === 'function') {
+      (session as any).calculateTotals();
     }
+    session.expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await session.save();
 
-    res.json(shippingMethods);
+    res.json([computed]);
   } catch (error) {
     logger.error('Error getting shipping methods:', error);
     res.status(500).json({ error: 'Failed to get shipping methods' });
@@ -391,7 +548,6 @@ export const getShippingMethods = async (req: AuthRequest, res: Response): Promi
 export const selectShippingMethod = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user._id;
-    const { methodId } = req.body;
 
     const session = await CheckoutSession.findOne({
       userId,
@@ -403,41 +559,22 @@ export const selectShippingMethod = async (req: AuthRequest, res: Response): Pro
       return;
     }
 
-    // Get available methods
-    const methods = [
-      {
-        id: 'standard',
-        name: 'Standard Shipping',
-        description: 'Delivery in 5-7 business days',
-        cost: session.subtotal >= 1000 ? 0 : 50,
-        estimatedDays: 7,
-        carrier: 'India Post'
-      },
-      {
-        id: 'express',
-        name: 'Express Shipping',
-        description: 'Delivery in 2-3 business days',
-        cost: 150,
-        estimatedDays: 3,
-        carrier: 'Blue Dart'
-      },
-      {
-        id: 'overnight',
-        name: 'Overnight Delivery',
-        description: 'Next day delivery',
-        cost: 300,
-        estimatedDays: 1,
-        carrier: 'DHL'
-      }
-    ];
-
-    const selectedMethod = methods.find(m => m.id === methodId);
-    if (!selectedMethod) {
-      res.status(404).json({ error: 'Shipping method not found' });
+    // If already assigned by getShippingMethods or address update, just return
+    if (session.shippingMethod) {
+      session.expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      await session.save();
+      res.json(session);
       return;
     }
 
-    session.shippingMethod = selectedMethod;
+    // Fallback: compute and assign automatically now
+    const autoMethod = await computeAutoShippingMethod(session);
+    session.shippingMethod = autoMethod as any;
+    session.shipping = autoMethod.cost;
+    if (typeof (session as any).calculateTotals === 'function') {
+      (session as any).calculateTotals();
+    }
+
     session.expiresAt = new Date(Date.now() + 30 * 60 * 1000);
     await session.save();
 
@@ -986,7 +1123,15 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
     // Ensure totalAmount exists (compute if needed)
     const subtotal = typeof session.subtotal === 'number' ? session.subtotal : Number(session.subtotal) || 0;
     const tax = typeof session.tax === 'number' ? session.tax : Number(session.tax) || 0;
-    const shippingCost = typeof session.shipping === 'number' ? session.shipping : Number(session.shipping) || 0;
+    const shippingCost = ((): number => {
+      const v = typeof session.shipping === 'number' ? session.shipping : Number(session.shipping) || 0;
+      if (v > 0) return v;
+      try {
+        return Number(session?.shippingMethod?.cost) || 0;
+      } catch {
+        return 0;
+      }
+    })();
     const discountAmount = typeof session.discount === 'number' ? session.discount : Number(session.discount) || 0;
     const giftCardDiscount = typeof session.giftCardDiscount === 'number' ? session.giftCardDiscount : Number(session.giftCardDiscount) || 0;
     const computedTotal = subtotal + tax + shippingCost - discountAmount - giftCardDiscount;
@@ -1042,6 +1187,52 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
       }
       res.status(500).json({ error: 'Failed to create order', details: errMsg });
       return;
+    }
+
+    // Optionally create shipment automatically (disabled by default until sandbox creds present)
+    if (process.env.AUTO_CREATE_SHIPMENT_ON_ORDER === 'true') {
+      try {
+        const choice = await computeBestProviderChoice(session);
+        if (choice && choice.provider && choice.rate) {
+          // Build ShippingRequest for creation
+          const cfg = await ShippingConfig.findOne();
+          const pickup = cfg?.pickupLocations?.find((p: any) => p.isDefault) || cfg?.pickupLocations?.[0];
+          const weight = Math.max(500, (Array.isArray(session.items) ? session.items.reduce((n: number, it: any) => n + (Number(it.quantity) || 1), 0) : 1) * 500);
+          const shippingReq: any = {
+            orderId: order.orderNumber || `order-${order._id}`,
+            pickupPincode: pickup?.pincode || '110001',
+            deliveryPincode: shippingAddressForOrder.pincode,
+            weight,
+            invoiceValue: subtotal,
+            paymentMethod: (session?.paymentMethod?.id === 'cod' || session?.paymentMethod?.type === 'cod') ? 'cod' : 'prepaid',
+            customerName: sa.fullName || 'Customer',
+            customerAddress: sa.addressLine1 || '',
+            customerCity: sa.city || '',
+            customerState: sa.state || '',
+            customerPhone: sa.phone || '',
+            customerEmail: '',
+            pickupLocation: pickup?.name || 'Default Warehouse',
+            pickupAddress: pickup?.address || '',
+            pickupCity: pickup?.city || '',
+            pickupState: pickup?.state || '',
+          };
+          const serviceParam = choice.provider === 'shiprocket'
+            ? (choice.rate.carrierId || choice.rate.serviceId || choice.rate.serviceName || '')
+            : (choice.rate.serviceId || choice.rate.serviceName || '');
+          const createRes = await shippingService.createShipment(choice.provider, shippingReq, serviceParam);
+          if (createRes?.success) {
+            order.trackingNumber = createRes.trackingId || order.trackingNumber;
+            order.shippingProvider = choice.provider;
+            if (createRes.estimatedDeliveryDate) order.estimatedDeliveryDate = createRes.estimatedDeliveryDate;
+            order.status = order.status === 'pending' ? 'processing' : order.status; // move forward
+            await order.save();
+          } else {
+            logger.warn('Auto shipment creation failed', { provider: choice.provider, error: createRes?.error });
+          }
+        }
+      } catch (shipErr) {
+        logger.warn('Auto shipment creation threw an error (ignored)', { error: (shipErr as any)?.message ?? String(shipErr) });
+      }
     }
 
     // Mark session as completed

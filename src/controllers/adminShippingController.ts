@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import ShippingConfig from '../models/ShippingConfig.js';
+import { Order } from '../models/Order.js';
 import { logger } from '../utils/logger.js';
-import { testShippingProvider } from '../services/ShippingService.js';
+import shippingService, { testShippingProvider } from '../services/ShippingService.js';
 
 // Get shipping configuration
 export const getShippingConfig = async (req: Request, res: Response): Promise<void> => {
@@ -17,6 +18,7 @@ export const getShippingConfig = async (req: Request, res: Response): Promise<vo
             name: 'Shiprocket',
             description: 'India\'s leading shipping aggregator with 25+ courier partners',
             enabled: false,
+            priority: 1,
             configFields: {
               email: {
                 name: 'Email',
@@ -56,6 +58,7 @@ export const getShippingConfig = async (req: Request, res: Response): Promise<vo
             name: 'Shipway',
             description: 'Automated shipping with AI-powered delivery experience',
             enabled: false,
+            priority: 2,
             configFields: {
               username: {
                 name: 'Username',
@@ -88,6 +91,7 @@ export const getShippingConfig = async (req: Request, res: Response): Promise<vo
             name: 'Shipyaari',
             description: 'Nationwide shipping with 29,000+ pincode coverage',
             enabled: false,
+            priority: 3,
             configFields: {
               userId: {
                 name: 'User ID',
@@ -117,6 +121,7 @@ export const getShippingConfig = async (req: Request, res: Response): Promise<vo
           }
         ],
         defaultAggregator: '',
+        selectionStrategy: 'priority',
         enablePincodeValidation: true,
         defaultShippingCost: 50,
         freeShippingThreshold: 500,
@@ -157,9 +162,17 @@ export const updateShippingConfig = async (req: Request, res: Response): Promise
       config.enableWebhooks = configData.enableWebhooks || false;
       config.enableInsurance = configData.enableInsurance || false;
       config.insuranceThreshold = configData.insuranceThreshold || 10000;
+      if (configData.selectionStrategy) {
+        (config as any).selectionStrategy = configData.selectionStrategy;
+      }
     }
     
     await config.save();
+
+    // Initialize runtime providers with the new configuration
+    const enabledAggregators = config.aggregators.filter((agg: any) => agg.enabled);
+    shippingService.initializeProviders(enabledAggregators as any, config.defaultAggregator);
+
     res.status(200).json(config);
   } catch (error) {
     logger.error('Error updating shipping configuration:', error);
@@ -212,66 +225,67 @@ export const testShippingConnection = async (req: Request, res: Response): Promi
 // Get shipping analytics
 export const getShippingAnalytics = async (req: Request, res: Response): Promise<void> => {
   try {
-    // const { period = '7d' } = req.query; // Will be used when implementing real analytics
-    
-    // For now, return mock data
-    // In a real implementation, you would query your database for actual statistics
-    const mockData = {
-      totalShipments: 152,
-      deliveredShipments: 128,
-      inTransitShipments: 18,
-      returnedShipments: 6,
-      averageDeliveryTime: 3.2, // in days
-      providerBreakdown: [
-        { provider: 'Shiprocket', count: 98, percentage: 64.5 },
-        { provider: 'Shipway', count: 32, percentage: 21.0 },
-        { provider: 'Shipyaari', count: 22, percentage: 14.5 },
-      ],
-      recentShipments: [
-        { 
-          orderId: 'ORD123456', 
-          trackingId: 'TRK987654', 
-          provider: 'Shiprocket', 
-          status: 'Delivered', 
-          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-          deliveredAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
-        },
-        { 
-          orderId: 'ORD123457', 
-          trackingId: 'TRK987655', 
-          provider: 'Shipway', 
-          status: 'In Transit', 
-          createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-          deliveredAt: null
-        },
-        { 
-          orderId: 'ORD123458', 
-          trackingId: 'TRK987656', 
-          provider: 'Shipyaari', 
-          status: 'Out for Delivery', 
-          createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-          deliveredAt: null
-        },
-        { 
-          orderId: 'ORD123459', 
-          trackingId: 'TRK987657', 
-          provider: 'Shiprocket', 
-          status: 'Delivered', 
-          createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-          deliveredAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
-        },
-        { 
-          orderId: 'ORD123460', 
-          trackingId: 'TRK987658', 
-          provider: 'Shiprocket', 
-          status: 'Returned', 
-          createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-          deliveredAt: null
-        }
-      ]
-    };
-    
-    res.status(200).json(mockData);
+    // Period handling: default 30 days, override via ?periodDays=7|30|90
+    const periodDaysRaw = (req.query.periodDays as string) || '30';
+    const periodDays = Math.max(1, parseInt(periodDaysRaw, 10) || 30);
+    const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
+
+    // Base match: orders with a tracking number created within period
+    const baseMatch: any = { createdAt: { $gte: since } };
+
+    const [totalShipments, deliveredShipments, inTransitShipments, cancelledShipments] = await Promise.all([
+      Order.countDocuments({ ...baseMatch, trackingNumber: { $exists: true, $ne: '' } }),
+      Order.countDocuments({ ...baseMatch, status: 'delivered' }),
+      Order.countDocuments({ ...baseMatch, status: { $in: ['processing', 'shipped'] } }),
+      Order.countDocuments({ ...baseMatch, status: 'cancelled' }),
+    ]);
+
+    // Average delivery time (days) for delivered orders in period
+    const delivered = await Order.find({ ...baseMatch, status: 'delivered', actualDeliveryDate: { $exists: true } })
+      .select({ createdAt: 1, actualDeliveryDate: 1 })
+      .lean();
+    let averageDeliveryTime = 0;
+    if (delivered.length > 0) {
+      const sumDays = delivered.reduce((sum: number, o: any) => {
+        const ms = (new Date(o.actualDeliveryDate).getTime() - new Date(o.createdAt).getTime());
+        return sum + Math.max(0, ms / (1000 * 60 * 60 * 24));
+      }, 0);
+      averageDeliveryTime = Number((sumDays / delivered.length).toFixed(2));
+    }
+
+    // Provider breakdown (counts per shippingProvider)
+    const providerAgg = await Order.aggregate([
+      { $match: { ...baseMatch, shippingProvider: { $exists: true, $ne: '' } } },
+      { $group: { _id: '$shippingProvider', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+    const providerBreakdown = providerAgg.map((r: any) => ({ provider: r._id, count: r.count }));
+
+    // Recent shipments (last 5)
+    const recentDocs = await Order.find({ ...baseMatch, trackingNumber: { $exists: true, $ne: '' } })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select({ orderNumber: 1, trackingNumber: 1, shippingProvider: 1, status: 1, createdAt: 1, actualDeliveryDate: 1 })
+      .lean();
+    const recentShipments = recentDocs.map((o: any) => ({
+      orderId: o.orderNumber || String(o._id),
+      trackingId: o.trackingNumber || '',
+      provider: o.shippingProvider || '',
+      status: (o.status || '').toString(),
+      createdAt: o.createdAt?.toISOString?.() || new Date(o.createdAt).toISOString(),
+      deliveredAt: o.actualDeliveryDate ? new Date(o.actualDeliveryDate).toISOString() : null,
+    }));
+
+    res.status(200).json({
+      periodDays,
+      totalShipments,
+      deliveredShipments,
+      inTransitShipments,
+      returnedShipments: cancelledShipments,
+      averageDeliveryTime,
+      providerBreakdown,
+      recentShipments,
+    });
   } catch (error) {
     logger.error('Error fetching shipping analytics:', error);
     res.status(500).json({ message: 'Failed to fetch shipping analytics' });

@@ -8,6 +8,7 @@ export interface IShippingAggregator {
   name: string;
   description: string;
   enabled: boolean;
+  priority?: number; // lower means higher priority
   configFields: {
     [key: string]: {
       name: string;
@@ -44,6 +45,7 @@ export interface IPickupLocation {
 export interface IShippingConfig {
   aggregators: IShippingAggregator[];
   defaultAggregator: string;
+  selectionStrategy?: 'priority' | 'cheapest' | 'fastest';
   enablePincodeValidation: boolean;
   defaultShippingCost: number;
   freeShippingThreshold: number;
@@ -69,10 +71,12 @@ const ShippingConfigSchema = new Schema<IShippingConfigDocument>(
       name: { type: String, required: true },
       description: { type: String, required: true },
       enabled: { type: Boolean, default: false },
+      priority: { type: Number, default: 0 },
       configFields: { type: Schema.Types.Mixed, required: true },
       webhookUrl: { type: String, required: false }
     }],
     defaultAggregator: { type: String, required: true },
+    selectionStrategy: { type: String, enum: ['priority', 'cheapest', 'fastest'], default: 'priority' },
     enablePincodeValidation: { type: Boolean, default: true },
     defaultShippingCost: { type: Number, default: 50 },
     freeShippingThreshold: { type: Number, default: 500 },
