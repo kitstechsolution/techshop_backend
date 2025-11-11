@@ -716,4 +716,72 @@ export const getShippingAnalytics = async (req: AuthRequest, res: Response): Pro
     logger.error('Error getting shipping analytics:', error);
     res.status(500).json({ error: 'Failed to get shipping analytics' });
   }
-}; 
+};
+
+/**
+ * Public: Check if a delivery pincode is serviceable by any enabled provider.
+ * GET /api/shipping/serviceability?pincode=400001&weight=500&invoiceValue=1000
+ */
+export const checkServiceability = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const deliveryPincode = (req.query.pincode as string || '').trim();
+    if (!deliveryPincode || !/^[0-9]{5,6}$/.test(deliveryPincode)) {
+      res.status(400).json({ error: 'Valid pincode is required' });
+      return;
+    }
+
+    const weight = Math.max(100, parseInt((req.query.weight as string) || '500', 10) || 500); // grams
+    const invoiceValue = Math.max(1, parseInt((req.query.invoiceValue as string) || '1000', 10) || 1000); // INR
+
+    // Load shipping config to determine pickup pincode and enabled providers
+    const cfg = await ShippingConfig.findOne();
+    const pickup = (cfg as any)?.pickupLocations?.find((p: any) => p.isDefault) || (cfg as any)?.pickupLocations?.[0];
+    const pickupPincode = pickup?.pincode || '110001'; // default New Delhi
+
+    // Build a minimal request to query rates across providers
+    const request: ShippingRequest = {
+      orderId: `svc-${Date.now()}`,
+      pickupPincode,
+      deliveryPincode,
+      weight,
+      invoiceValue,
+      paymentMethod: 'prepaid',
+      customerName: 'Pincode Check',
+      customerCity: '',
+      customerState: '',
+      customerPhone: ''
+    };
+
+    const ratesMap = await shippingService.getAllRates(request);
+
+    // Summarize serviceability per provider
+    const providers: Array<{ providerId: string; available: boolean; services: number }> = [];
+    let totalServices = 0;
+    for (const [prov, rates] of ratesMap.entries()) {
+      const count = Array.isArray(rates) ? rates.length : 0;
+      providers.push({ providerId: prov, available: count > 0, services: count });
+      totalServices += count;
+    }
+
+    // Compute ETA range from all rates
+    const allEtas: number[] = [];
+    ratesMap.forEach((rates) => {
+      for (const r of (rates || [])) {
+        if (typeof r.estimatedDeliveryDays === 'number') allEtas.push(r.estimatedDeliveryDays);
+      }
+    });
+    const etaMin = allEtas.length ? Math.min(...allEtas) : null;
+    const etaMax = allEtas.length ? Math.max(...allEtas) : null;
+
+    res.json({
+      serviceable: totalServices > 0,
+      providers,
+      estimatedDeliveryDays: etaMin != null ? { min: etaMin, max: etaMax } : null,
+      pickupPincode,
+      deliveryPincode
+    });
+  } catch (error) {
+    logger.error('Error checking pincode serviceability:', error);
+    res.status(500).json({ error: 'Failed to check pincode serviceability' });
+  }
+};

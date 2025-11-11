@@ -11,11 +11,15 @@ import {
   createReturnShipment,
   getPickupLocations,
   createPickupLocation,
-  getShippingAnalytics
+  getShippingAnalytics,
+  checkServiceability
 } from '../controllers/shippingController.js';
 import { adminAuth, auth } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Public serviceability check
+router.get('/serviceability', checkServiceability);
 
 // Admin-only routes for shipping settings
 router.get('/settings', adminAuth, getShippingSettings);
