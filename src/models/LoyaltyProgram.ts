@@ -95,9 +95,6 @@ const loyaltyTierSchema = new Schema<ILoyaltyTier>(
   }
 );
 
-// Index for sorting by level
-loyaltyTierSchema.index({ level: 1 });
-
 export const LoyaltyTier = mongoose.model<ILoyaltyTier>('LoyaltyTier', loyaltyTierSchema);
 
 // ==================== USER LOYALTY ====================
@@ -181,8 +178,7 @@ const userLoyaltySchema = new Schema<IUserLoyalty>(
   }
 );
 
-// Index for querying by user
-userLoyaltySchema.index({ user: 1 });
+// Indexes for querying user loyalty records
 userLoyaltySchema.index({ tier: 1 });
 
 export const UserLoyalty = mongoose.model<IUserLoyalty>('UserLoyalty', userLoyaltySchema);
@@ -454,7 +450,6 @@ const userRewardRedemptionSchema = new Schema<IUserRewardRedemption>(
 
 // Indexes
 userRewardRedemptionSchema.index({ user: 1, status: 1 });
-userRewardRedemptionSchema.index({ code: 1 });
 userRewardRedemptionSchema.index({ expiresAt: 1 });
 
 export const UserRewardRedemption = mongoose.model<IUserRewardRedemption>(

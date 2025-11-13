@@ -21,7 +21,6 @@ const recentlyViewedSchema = new mongoose.Schema({
   viewedAt: {
     type: Date,
     default: Date.now,
-    index: true,
   },
 }, {
   timestamps: false, // We're using viewedAt instead

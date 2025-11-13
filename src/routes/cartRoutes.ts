@@ -24,6 +24,17 @@ import {
   updateNotes,
 } from '../controllers/cartController.js';
 import { auth } from '../middleware/auth.js';
+import { validateBody } from '../middleware/validate.js';
+import {
+  addToCartSchema,
+  updateCartItemSchema,
+  applyCouponSchema,
+  validateCouponSchema,
+  mergeCartSchema,
+  canAddToCartSchema,
+  restoreCartSchema,
+  calculateShippingSchema,
+} from '../validation/schemas.js';
 
 const router = express.Router();
 
@@ -45,10 +56,10 @@ router.delete('/', clearCart);
  */
 
 // Add item to cart
-router.post('/items', addToCart);
+router.post('/items', validateBody(addToCartSchema), addToCart);
 
 // Update cart item quantity
-router.put('/items/:itemId', updateCartItem);
+router.put('/items/:itemId', validateBody(updateCartItemSchema), updateCartItem);
 
 // Remove item from cart
 router.delete('/items/:itemId', removeFromCart);
@@ -64,13 +75,13 @@ router.put('/items/:itemId/gift-wrap', applyGiftWrapping);
  */
 
 // Apply coupon code
-router.post('/coupon', applyCoupon);
+router.post('/coupon', validateBody(applyCouponSchema), applyCoupon);
 
 // Remove coupon
 router.delete('/coupon', removeCoupon);
 
 // Validate coupon code
-router.post('/coupon/validate', validateCoupon);
+router.post('/coupon/validate', validateBody(validateCouponSchema), validateCoupon);
 
 /**
  * Cart Information Routes
@@ -87,7 +98,7 @@ router.get('/count', getCartItemCount);
  */
 
 // Merge guest cart with user cart
-router.post('/merge', mergeCart);
+router.post('/merge', validateBody(mergeCartSchema), mergeCart);
 
 // Validate cart (stock check)
 router.post('/validate', validateCart);
@@ -96,7 +107,7 @@ router.post('/validate', validateCart);
 router.get('/recommendations', getRecommendations);
 
 // Check if product can be added to cart
-router.post('/can-add', canAddToCart);
+router.post('/can-add', validateBody(canAddToCartSchema), canAddToCart);
 
 /**
  * Cart Persistence Routes
@@ -106,7 +117,7 @@ router.post('/can-add', canAddToCart);
 router.post('/save', saveCartForLater);
 
 // Restore saved cart
-router.post('/restore', restoreCart);
+router.post('/restore', validateBody(restoreCartSchema), restoreCart);
 
 // Get abandoned cart
 router.get('/abandoned/:cartId', getAbandonedCart);
@@ -116,7 +127,7 @@ router.get('/abandoned/:cartId', getAbandonedCart);
  */
 
 // Calculate shipping cost
-router.post('/shipping/calculate', calculateShipping);
+router.post('/shipping/calculate', validateBody(calculateShippingSchema), calculateShipping);
 
 /**
  * Gift Options Routes

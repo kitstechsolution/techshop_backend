@@ -272,7 +272,7 @@ class PDFService {
   /**
    * Build invoice footer with terms and thank you message
    */
-  private buildInvoiceFooter(doc: PDFKit.PDFDocument, invoiceData: InvoiceData): void {
+  private buildInvoiceFooter(doc: PDFKit.PDFDocument, _invoiceData: InvoiceData): void {
     const footerTop = 720;
 
     // Draw line before footer

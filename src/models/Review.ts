@@ -194,7 +194,6 @@ const reviewSchema = new Schema<IReview, IReviewModel>(
     reported: {
       type: Boolean,
       default: false,
-      index: true,
     },
     reportCount: {
       type: Number,

@@ -3,7 +3,7 @@ import { PaymentSettings } from '../models/PaymentSettings.js';
 
 /**
  * Get all payment settings
- * GET /api/admin/payments/settings
+ * GET /api/payment-settings/admin/settings
  */
 export const getPaymentSettings = async (req: Request, res: Response) => {
   try {
@@ -145,7 +145,7 @@ export const getEnabledGateways = async (req: Request, res: Response) => {
 
 /**
  * Create or update gateway configuration
- * PUT /api/admin/payments/gateway/:gatewayId
+ * PUT /api/payment-settings/admin/gateway/:gatewayId
  */
 export const updateGatewayConfig = async (req: Request, res: Response) => {
   try {
@@ -307,7 +307,7 @@ export const updateGatewayConfig = async (req: Request, res: Response) => {
 
 /**
  * Enable a payment gateway
- * POST /api/admin/payments/gateway/:gatewayId/enable
+ * POST /api/payment-settings/admin/gateway/:gatewayId/enable
  */
 export const enableGateway = async (req: Request, res: Response) => {
   try {
@@ -345,7 +345,7 @@ export const enableGateway = async (req: Request, res: Response) => {
 
 /**
  * Disable a payment gateway
- * POST /api/admin/payments/gateway/:gatewayId/disable
+ * POST /api/payment-settings/admin/gateway/:gatewayId/disable
  */
 export const disableGateway = async (req: Request, res: Response) => {
   try {
@@ -383,7 +383,7 @@ export const disableGateway = async (req: Request, res: Response) => {
 
 /**
  * Set default payment gateway
- * POST /api/admin/payments/gateway/:gatewayId/set-default
+ * POST /api/payment-settings/admin/gateway/:gatewayId/set-default
  */
 export const setDefaultGateway = async (req: Request, res: Response) => {
   try {
@@ -428,7 +428,7 @@ export const setDefaultGateway = async (req: Request, res: Response) => {
 
 /**
  * Update global payment settings
- * PUT /api/admin/payments/settings/global
+ * PUT /api/payment-settings/admin/settings/global
  */
 export const updateGlobalSettings = async (req: Request, res: Response) => {
   try {
@@ -496,7 +496,7 @@ export const updateGlobalSettings = async (req: Request, res: Response) => {
 
 /**
  * Get payment settings history
- * GET /api/admin/payments/history
+ * GET /api/payment-settings/admin/history
  */
 export const getPaymentHistory = async (req: Request, res: Response) => {
   try {
@@ -520,7 +520,7 @@ export const getPaymentHistory = async (req: Request, res: Response) => {
 
 /**
  * Test gateway connection
- * POST /api/admin/payments/gateway/:gatewayId/test
+ * POST /api/payment-settings/admin/gateway/:gatewayId/test
  */
 export const testGatewayConnection = async (req: Request, res: Response) => {
   try {
@@ -585,7 +585,7 @@ export const testGatewayConnection = async (req: Request, res: Response) => {
 
 /**
  * Delete gateway configuration
- * DELETE /api/admin/payments/gateway/:gatewayId
+ * DELETE /api/payment-settings/admin/gateway/:gatewayId
  */
 export const deleteGateway = async (req: Request, res: Response) => {
   try {

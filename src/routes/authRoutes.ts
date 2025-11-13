@@ -9,14 +9,21 @@ import {
   resetPassword
 } from '../controllers/authController.js';
 import { auth } from '../middleware/auth.js';
+import { validateBody } from '../middleware/validate.js';
+import { 
+  authRegisterSchema,
+  authLoginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from '../validation/schemas.js';
 
 const router = express.Router();
 
-// Public routes
-router.post('/register', register);
-router.post('/login', login);
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+// Public routes with validation
+router.post('/register', validateBody(authRegisterSchema), register);
+router.post('/login', validateBody(authLoginSchema), login);
+router.post('/forgot-password', validateBody(forgotPasswordSchema), forgotPassword);
+router.post('/reset-password', validateBody(resetPasswordSchema), resetPassword);
 
 // Protected routes
 router.get('/profile', auth, getProfile);

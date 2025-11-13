@@ -13,6 +13,8 @@ import {
   requestReturn
 } from '../controllers/orderController.js';
 import { auth } from '../middleware/auth.js';
+import { validateBody } from '../middleware/validate.js';
+import { createOrderSchema } from '../validation/schemas.js';
 
 const router = express.Router();
 
@@ -26,7 +28,7 @@ router.get('/', getUserOrders);
 router.get('/stats/summary', getOrderStats);
 
 // Create a new order
-router.post('/', createOrder);
+router.post('/', validateBody(createOrderSchema), createOrder);
 
 // Get a specific order by ID for the current user
 router.get('/:id', getUserOrderById);

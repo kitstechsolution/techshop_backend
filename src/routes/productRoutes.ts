@@ -15,6 +15,7 @@ import {
   trackProductView,
   isInWishlist
 } from '../controllers/productController.js';
+import { searchProducts } from '../controllers/searchController.js';
 import { createReview, getProductReviews, getProductReviewStats, voteOnReview, canUserReviewProduct } from '../controllers/reviewController.js';
 import { auth, optionalAuth } from '../middleware/auth.js';
 
@@ -22,6 +23,9 @@ const router = express.Router();
 
 // Get filter options (must come before other routes to avoid conflicts)
 router.get('/filters/options', getFilterOptions);
+
+// Product search alias (aligns with frontend /products/search)
+router.get('/search', searchProducts);
 
 // Get featured products
 router.get('/featured/list', getFeaturedProducts);

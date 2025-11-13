@@ -1,5 +1,5 @@
 declare module 'multer' {
-  import type { Request } from 'express';
+  import type { Request as _Request } from 'express';
   export interface File {
     fieldname: string;
     originalname: string;

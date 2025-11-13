@@ -8,6 +8,7 @@ import fs from 'fs';
 
 interface AuthRequest extends Request {
   user?: { _id: string };
+  file?: any;
 }
 
 /**
@@ -100,7 +101,7 @@ export const updateAddress = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const address = user.addresses.id(addressId);
+    const address = (user.addresses as any).id(addressId);
     
     if (!address) {
       res.status(404).json({ error: 'Address not found' });
@@ -149,7 +150,7 @@ export const deleteAddress = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     const addressIndex = user.addresses.findIndex(
-      addr => addr._id?.toString() === addressId
+      (addr: any) => addr._id?.toString() === addressId
     );
 
     if (addressIndex === -1) {
@@ -189,7 +190,7 @@ export const setDefaultAddress = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const address = user.addresses.id(addressId);
+    const address = (user.addresses as any).id(addressId);
     
     if (!address) {
       res.status(404).json({ error: 'Address not found' });

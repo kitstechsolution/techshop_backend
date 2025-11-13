@@ -232,7 +232,7 @@ const BrandSettingsSchema = new Schema({
 
 // Schema for custom theme
 const CustomThemeSchema = new Schema({
-  id: { type: String, required: true, unique: true },
+  id: { type: String, required: true },
   name: { type: String, required: true },
   description: { type: String },
   industry: {
@@ -295,7 +295,7 @@ const ThemeSettingsSchema = new Schema({
 });
 
 // Index for fast lookups
-ThemeSettingsSchema.index({ 'customThemes.id': 1 });
+ThemeSettingsSchema.index({ 'customThemes.id': 1 }, { unique: true });
 
 // Method to add theme to history
 ThemeSettingsSchema.methods.addToHistory = function(themeId: string, themeName: string, action: string, changes?: string) {

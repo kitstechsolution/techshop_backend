@@ -38,6 +38,20 @@ export interface IOrder extends Document {
   totalAmount?: number;
   orderNumber?: string;
   notes?: string;
+  // Derived/timestamp fields provided by Mongoose timestamps and controllers
+  createdAt?: Date;
+  updatedAt?: Date;
+  shippedAt?: Date;
+  deliveredAt?: Date;
+  cancelledAt?: Date;
+  cancellationReason?: string;
+  // Return/after-sales fields
+  returnRequested?: boolean;
+  returnRequestedAt?: Date;
+  returnReason?: string;
+  returnItems?: any[];
+  returnStatus?: string;
+  carrier?: string;
 }
 
 const orderSchema = new mongoose.Schema({

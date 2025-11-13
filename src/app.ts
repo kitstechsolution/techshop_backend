@@ -1,5 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import mongoSanitize from 'express-mongo-sanitize';
 import { connectDB } from './config/database.js';
 import { server } from './config/config.js';
 import authRoutes from './routes/authRoutes.js';
@@ -55,7 +57,10 @@ initializeShipping().catch(err => {
   logger.warn('Shipping initialization failed (will be initialized after admin saves settings):', err?.message || err);
 });
 
-// Middleware
+// Security & core middleware
+app.use(helmet());
+app.use(mongoSanitize());
+
 const allowedOrigins = [
   server.corsOrigin,
   'http://localhost:3000',
@@ -92,8 +97,9 @@ app.options('*', cors({
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Apply global rate limiting
 app.use('/api/', apiLimiter);

@@ -6,7 +6,11 @@ import { PasswordResetToken } from '../models/PasswordResetToken.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
 import { logger } from '../utils/logger.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const rawJwtSecret = process.env.JWT_SECRET;
+if (!rawJwtSecret && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET must be set in production');
+}
+const JWT_SECRET = rawJwtSecret || 'your-secret-key';
 const JWT_EXPIRES_IN = '7d';
 
 interface JWTPayload {

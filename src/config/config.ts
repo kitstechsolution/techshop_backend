@@ -63,10 +63,7 @@ export const server = {
 // Database Configuration
 export const database = {
   uri: getEnv('MONGODB_URI', 'mongodb://localhost:27017/ecommerce'),
-  options: {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  },
+  options: {},
   reconnectTries: getNumberEnv('DB_RECONNECT_TRIES', 3),
   reconnectInterval: getNumberEnv('DB_RECONNECT_INTERVAL', 1000),
 };

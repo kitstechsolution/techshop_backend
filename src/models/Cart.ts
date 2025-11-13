@@ -85,7 +85,6 @@ cartSchema.pre('save', function (next) {
 });
 
 // Index for faster queries
-cartSchema.index({ user: 1 });
 cartSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const Cart = mongoose.model<ICart>('Cart', cartSchema);

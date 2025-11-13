@@ -64,7 +64,7 @@ describe('Auth API Integration Tests', () => {
         .expect(201);
 
       // Try to register again with same email
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/register')
         .send(userData)
         .expect(400);
@@ -88,7 +88,7 @@ describe('Auth API Integration Tests', () => {
   describe('POST /api/auth/login', () => {
     beforeEach(async () => {
       // Create a test user
-      await request(app)
+      await requestAny(app)
         .post('/api/auth/register')
         .send({
           firstName: 'Jane',
@@ -99,7 +99,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should login with valid credentials', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/login')
         .send({
           email: 'jane@example.com',
@@ -112,7 +112,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should not login with invalid password', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/login')
         .send({
           email: 'jane@example.com',
@@ -124,7 +124,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should not login with non-existent email', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/login')
         .send({
           email: 'nonexistent@example.com',
@@ -141,7 +141,7 @@ describe('Auth API Integration Tests', () => {
 
     beforeEach(async () => {
       // Register and login to get token
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/register')
         .send({
           firstName: 'Test',
@@ -154,7 +154,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should get profile with valid token', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .get('/api/auth/profile')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
@@ -164,13 +164,13 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should not get profile without token', async () => {
-      await request(app)
+      await requestAny(app)
         .get('/api/auth/profile')
         .expect(401);
     });
 
     it('should not get profile with invalid token', async () => {
-      await request(app)
+      await requestAny(app)
         .get('/api/auth/profile')
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
@@ -181,7 +181,7 @@ describe('Auth API Integration Tests', () => {
     let authToken: string;
 
     beforeEach(async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/register')
         .send({
           firstName: 'Password',
@@ -194,7 +194,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should change password with valid current password', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/change-password')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -206,7 +206,7 @@ describe('Auth API Integration Tests', () => {
       expect(response.body).toHaveProperty('message');
 
       // Verify can login with new password
-      const loginResponse = await request(app)
+      const loginResponse = await requestAny(app)
         .post('/api/auth/login')
         .send({
           email: 'password@example.com',
@@ -218,7 +218,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should not change password with incorrect current password', async () => {
-      await request(app)
+      await requestAny(app)
         .post('/api/auth/change-password')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
@@ -229,7 +229,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should not change password without authentication', async () => {
-      await request(app)
+      await requestAny(app)
         .post('/api/auth/change-password')
         .send({
           currentPassword: 'oldpassword123',
@@ -241,7 +241,7 @@ describe('Auth API Integration Tests', () => {
 
   describe('POST /api/auth/forgot-password', () => {
     beforeEach(async () => {
-      await request(app)
+      await requestAny(app)
         .post('/api/auth/register')
         .send({
           firstName: 'Forgot',
@@ -252,7 +252,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should send reset email for existing user', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/forgot-password')
         .send({
           email: 'forgot@example.com',
@@ -263,7 +263,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should return success even for non-existent email (security)', async () => {
-      const response = await request(app)
+      const response = await requestAny(app)
         .post('/api/auth/forgot-password')
         .send({
           email: 'nonexistent@example.com',

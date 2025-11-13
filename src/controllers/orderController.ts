@@ -104,7 +104,7 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
       await sendOrderConfirmationEmail(
         user.email,
         {
-          orderNumber: newOrder._id.toString(),
+          orderNumber: (newOrder as any)._id.toString(),
           name: `${user.firstName} ${user.lastName}`,
           items: newOrder.items.map(item => ({
             name: item.name,
@@ -327,10 +327,10 @@ export const getOrderStats = async (req: AuthRequest, res: Response): Promise<vo
     
     // Get recent orders (last 5)
     const recentOrders = orders
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort((a, b) => new Date((b as any).createdAt).getTime() - new Date((a as any).createdAt).getTime())
       .slice(0, 5)
       .map(order => ({
-        id: order._id,
+        id: order._id as any,
         total: order.total,
         status: order.status,
         createdAt: order.createdAt
@@ -387,9 +387,9 @@ export const downloadInvoice = async (req: AuthRequest, res: Response): Promise<
 
     // Prepare invoice data for PDF generation
     const invoiceData = {
-      invoiceNumber: `INV-${order._id.toString().slice(-8).toUpperCase()}`,
-      orderNumber: order._id.toString(),
-      date: order.createdAt,
+      invoiceNumber: `INV-${String((order as any)._id).slice(-8).toUpperCase()}`,
+      orderNumber: String((order as any)._id),
+      date: (order as any).createdAt || new Date(),
       customer: {
         name: `${(order.user as any)?.firstName || ''} ${(order.user as any)?.lastName || ''}`.trim(),
         email: (order.user as any)?.email || '',
@@ -460,7 +460,7 @@ export const trackOrder = async (req: AuthRequest, res: Response): Promise<void>
         status: 'pending',
         label: 'Order Placed',
         completed: true,
-        date: order.createdAt,
+        date: (order as any).createdAt,
         description: 'Your order has been received'
       }
     ];
@@ -473,7 +473,7 @@ export const trackOrder = async (req: AuthRequest, res: Response): Promise<void>
         status: 'processing',
         label: 'Processing',
         completed: true,
-        date: order.updatedAt,
+        date: (order as any).updatedAt,
         description: 'Your order is being prepared'
       });
     }
@@ -483,7 +483,7 @@ export const trackOrder = async (req: AuthRequest, res: Response): Promise<void>
         status: 'shipped',
         label: 'Shipped',
         completed: true,
-        date: order.shippedAt || order.updatedAt,
+        date: (order as any).shippedAt || (order as any).updatedAt,
         description: 'Your order has been shipped'
       });
     }
@@ -493,7 +493,7 @@ export const trackOrder = async (req: AuthRequest, res: Response): Promise<void>
         status: 'delivered',
         label: 'Delivered',
         completed: true,
-        date: order.deliveredAt || order.updatedAt,
+        date: (order as any).deliveredAt || (order as any).updatedAt,
         description: 'Your order has been delivered'
       });
     } else if (order.status !== 'cancelled') {
@@ -516,8 +516,8 @@ export const trackOrder = async (req: AuthRequest, res: Response): Promise<void>
         status: 'cancelled',
         label: 'Cancelled',
         completed: true,
-        date: order.cancelledAt || order.updatedAt,
-        description: order.cancellationReason || 'Order was cancelled'
+        date: (order as any).cancelledAt || (order as any).updatedAt,
+        description: (order as any).cancellationReason || 'Order was cancelled'
       });
     }
     
@@ -672,7 +672,7 @@ export const requestReturn = async (req: AuthRequest, res: Response): Promise<vo
     }
     
     // Check if return window is still open (e.g., 30 days)
-    const deliveryDate = order.deliveredAt ? new Date(order.deliveredAt) : new Date(order.updatedAt);
+    const deliveryDate = (order as any).deliveredAt ? new Date((order as any).deliveredAt) : new Date((order as any).updatedAt);
     const daysSinceDelivery = Math.floor((Date.now() - deliveryDate.getTime()) / (1000 * 60 * 60 * 24));
     const returnWindowDays = 30;
     
@@ -698,7 +698,7 @@ export const requestReturn = async (req: AuthRequest, res: Response): Promise<vo
     order.returnRequested = true;
     order.returnRequestedAt = new Date();
     order.returnReason = reason;
-    order.returnItems = returnItems || order.items.map(item => item._id);
+    order.returnItems = returnItems || order.items.map(item => (item as any)._id);
     order.returnStatus = 'pending';
     
     await order.save();

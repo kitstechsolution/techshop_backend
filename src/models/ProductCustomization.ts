@@ -211,7 +211,6 @@ const productCustomizationSchema = new Schema<IProductCustomization>(
         sku: {
           type: String,
           required: true,
-          unique: true,
         },
         combination: {
           type: Map,
@@ -244,7 +243,7 @@ const productCustomizationSchema = new Schema<IProductCustomization>(
 
 // Indexes
 productCustomizationSchema.index({ product: 1, enabled: 1 });
-productCustomizationSchema.index({ 'variants.sku': 1 });
+productCustomizationSchema.index({ 'variants.sku': 1 }, { unique: true });
 
 // Method to calculate price based on customizations
 productCustomizationSchema.methods.calculatePrice = function (
