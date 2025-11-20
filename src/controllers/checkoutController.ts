@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Types } from 'mongoose';
 import { logger } from '../utils/logger.js';
 import { shipping as shippingConfig } from '../config/config.js';
-import shippingService from '../services/ShippingService.js';
+import shippingService from '../services/shipping/index.js';
 import ShippingConfig from '../models/ShippingConfig.js';
 
 // Extend Request to include user
@@ -21,7 +21,7 @@ interface AuthRequest extends Request {
  * GET /api/checkout/session
  */
 // Helper: compute a single automatic shipping method using configured providers when available
-async function computeAutoShippingMethod(session: any): Promise<{ id: string; name: string; description: string; cost: number; estimatedDays: number; carrier: string; }>{
+async function computeAutoShippingMethod(session: any): Promise<{ id: string; name: string; description: string; cost: number; estimatedDays: number; carrier: string; }> {
   try {
     // Load shipping config for strategy and thresholds
     const cfg = await ShippingConfig.findOne();
@@ -233,7 +233,7 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response): Pr
     // Verify products exist and prices match
     const productIds = items.map((item: any) => item.productId);
     const products = await Product.find({ _id: { $in: productIds } });
-    
+
     if (products.length !== items.length) {
       res.status(400).json({ error: 'Some products not found' });
       return;
@@ -1053,27 +1053,27 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
       logger.warn('createOrder: failed to apply incoming selections to session', { err: errMsg });
     }
 
-      // If session has no items, try to populate it from the user's cart (helps when UI updated cart but didn't create session)
-      try {
-        if ((!session.items || session.items.length === 0)) {
-          const cart = await Cart.findOne({ user: userId }).populate('items.product');
-          if (cart && cart.items && cart.items.length > 0) {
-            session.items = cart.items.map((it: any) => ({
-              productId: String(it.product?._id ?? it.product),
-              name: it.name,
-              quantity: it.quantity,
-              price: it.price,
-              image: it.image || (it.product && (it.product.imageUrl || (it.product.images && it.product.images[0]))) || '/images/no-image.png',
-            }));
-            await session.save();
-            logger.info('createOrder: populated session items from cart', { userId, itemCount: session.items.length });
-          }
+    // If session has no items, try to populate it from the user's cart (helps when UI updated cart but didn't create session)
+    try {
+      if ((!session.items || session.items.length === 0)) {
+        const cart = await Cart.findOne({ user: userId }).populate('items.product');
+        if (cart && cart.items && cart.items.length > 0) {
+          session.items = cart.items.map((it: any) => ({
+            productId: String(it.product?._id ?? it.product),
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+            image: it.image || (it.product && (it.product.imageUrl || (it.product.images && it.product.images[0]))) || '/images/no-image.png',
+          }));
+          await session.save();
+          logger.info('createOrder: populated session items from cart', { userId, itemCount: session.items.length });
         }
-      } catch (populateErr) {
-        logger.warn('createOrder: failed to populate session from cart', { err: (populateErr as any)?.message ?? String(populateErr) });
       }
+    } catch (populateErr) {
+      logger.warn('createOrder: failed to populate session from cart', { err: (populateErr as any)?.message ?? String(populateErr) });
+    }
 
-      // Validate session
+    // Validate session
     const validation = session.validateForOrder();
     if (!validation.valid) {
       logger.warn('createOrder: checkout validation failed', { userId, errors: validation.errors, sessionSnapshot: { items: session.items.length, shippingAddress: !!session.shippingAddress, shippingMethod: !!session.shippingMethod, paymentMethod: !!session.paymentMethod } });

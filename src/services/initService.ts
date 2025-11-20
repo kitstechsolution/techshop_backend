@@ -1,5 +1,5 @@
 import ShippingConfig from '../models/ShippingConfig.js';
-import shippingService from './ShippingService.js';
+import shippingService from './shipping/index.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -9,10 +9,10 @@ export const initializeShipping = async (): Promise<void> => {
   try {
     // Check if shipping configuration exists
     const existingConfig = await ShippingConfig.findOne();
-    
+
     if (!existingConfig) {
       logger.info('Creating default shipping configuration');
-      
+
       // Create default shipping configuration
       const defaultConfig = {
         aggregators: [
@@ -130,16 +130,16 @@ export const initializeShipping = async (): Promise<void> => {
         freeShippingThreshold: parseInt(process.env.FREE_SHIPPING_THRESHOLD || '500', 10),
         enableInternationalShipping: process.env.ENABLE_INTERNATIONAL_SHIPPING === 'true'
       };
-      
+
       const config = await ShippingConfig.create(defaultConfig);
       logger.info('Default shipping configuration created');
-      
+
       // Initialize shipping service with the default configuration
       const enabledAggregators = config.aggregators.filter(agg => agg.enabled);
       shippingService.initializeProviders(enabledAggregators, config.defaultAggregator);
     } else {
       logger.info('Shipping configuration already exists, initializing service');
-      
+
       // Initialize shipping service with existing configuration
       const enabledAggregators = existingConfig.aggregators.filter(agg => agg.enabled);
       shippingService.initializeProviders(enabledAggregators, existingConfig.defaultAggregator);
@@ -152,9 +152,9 @@ export const initializeShipping = async (): Promise<void> => {
 // Add shipping initialization to the main init function
 export const initializeAll = async (): Promise<void> => {
   // ... existing initialization code ...
-  
+
   // Initialize shipping
   await initializeShipping();
-  
+
   // ... rest of the function ...
 }; 

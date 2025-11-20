@@ -93,6 +93,20 @@ interface BrandSettings {
   socialImage?: string;
 }
 
+// Interface for visual effects
+interface Effects {
+  glass: {
+    opacity: string;
+    blur: string;
+    borderOpacity: string;
+  };
+  shadows: {
+    soft: string;
+    medium: string;
+    hard: string;
+  };
+}
+
 // Interface for custom theme
 interface ICustomTheme {
   id: string;
@@ -103,6 +117,7 @@ interface ICustomTheme {
   typography: Typography;
   semanticColors: SemanticColors;
   brand: BrandSettings;
+  effects?: Effects;
   dateCreated: Date;
   dateModified: Date;
   isActive: boolean;
@@ -230,6 +245,20 @@ const BrandSettingsSchema = new Schema({
   socialImage: { type: String }
 }, { _id: false });
 
+// Schema for visual effects
+const EffectsSchema = new Schema({
+  glass: {
+    opacity: { type: String, default: '0.7' },
+    blur: { type: String, default: '10px' },
+    borderOpacity: { type: String, default: '0.3' }
+  },
+  shadows: {
+    soft: { type: String, default: '0 10px 25px -5px rgba(0, 0, 0, 0.05)' },
+    medium: { type: String, default: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' },
+    hard: { type: String, default: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }
+  }
+}, { _id: false });
+
 // Schema for custom theme
 const CustomThemeSchema = new Schema({
   id: { type: String, required: true },
@@ -244,6 +273,7 @@ const CustomThemeSchema = new Schema({
   typography: { type: TypographySchema, required: true },
   semanticColors: { type: SemanticColorsSchema, required: true },
   brand: { type: BrandSettingsSchema, required: true },
+  effects: { type: EffectsSchema },
   dateCreated: { type: Date, default: Date.now },
   dateModified: { type: Date, default: Date.now },
   isActive: { type: Boolean, default: false }
@@ -298,7 +328,7 @@ const ThemeSettingsSchema = new Schema({
 ThemeSettingsSchema.index({ 'customThemes.id': 1 }, { unique: true });
 
 // Method to add theme to history
-ThemeSettingsSchema.methods.addToHistory = function(themeId: string, themeName: string, action: string, changes?: string) {
+ThemeSettingsSchema.methods.addToHistory = function (themeId: string, themeName: string, action: string, changes?: string) {
   this.history.push({
     themeId,
     themeName,
@@ -316,7 +346,7 @@ ThemeSettingsSchema.methods.addToHistory = function(themeId: string, themeName: 
 };
 
 // Method to get active theme
-ThemeSettingsSchema.methods.getActiveTheme = function() {
+ThemeSettingsSchema.methods.getActiveTheme = function () {
   if (this.activeThemeType === 'custom') {
     return this.customThemes.find((theme: ICustomTheme) => theme.id === this.activeThemeId);
   }
@@ -324,7 +354,7 @@ ThemeSettingsSchema.methods.getActiveTheme = function() {
 };
 
 // Method to apply theme
-ThemeSettingsSchema.methods.applyTheme = function(themeId: string, themeType: 'preset' | 'custom', themeName: string) {
+ThemeSettingsSchema.methods.applyTheme = function (themeId: string, themeType: 'preset' | 'custom', themeName: string) {
   // Deactivate all custom themes
   this.customThemes.forEach((theme: ICustomTheme) => {
     theme.isActive = false;
@@ -345,9 +375,9 @@ ThemeSettingsSchema.methods.applyTheme = function(themeId: string, themeType: 'p
 };
 
 // Static method to get or create settings
-ThemeSettingsSchema.statics.getSettings = async function() {
+ThemeSettingsSchema.statics.getSettings = async function () {
   let settings = await this.findOne();
-  
+
   if (!settings) {
     // Create default settings
     settings = await this.create({
@@ -358,7 +388,7 @@ ThemeSettingsSchema.statics.getSettings = async function() {
       history: []
     });
   }
-  
+
   return settings;
 };
 

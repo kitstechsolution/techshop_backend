@@ -1,12 +1,12 @@
 import { Request, Response } from 'express';
 import ShippingConfig, { IShippingAggregator } from '../models/ShippingConfig.js';
-import shippingService, { 
-  ShippingRequest, 
+import shippingService, {
+  ShippingRequest,
   ShippingAggregatorProvider,
   ShiprocketProvider,
-  ShipwayProvider, 
+  ShipwayProvider,
   ShipyaariProvider
-} from '../services/ShippingService.js';
+} from '../services/shipping/index.js';
 import { logger } from '../utils/logger.js';
 import { Order } from '../models/Order.js';
 
@@ -24,12 +24,12 @@ export const getShippingSettings = async (_req: AuthRequest, res: Response): Pro
   try {
     // Try to get settings from database
     let settings = await ShippingConfig.findOne();
-    
+
     // If no settings exist, create default settings
     if (!settings) {
       settings = await createDefaultShippingSettings();
     }
-    
+
     // Mask sensitive values
     const maskedSettings = {
       ...settings.toObject(),
@@ -38,15 +38,15 @@ export const getShippingSettings = async (_req: AuthRequest, res: Response): Pro
         configFields: Object.entries(aggregator.configFields).reduce((fields: any, [key, field]: [string, any]) => {
           fields[key] = {
             ...field,
-            value: isSecretField(key) && field.value 
-              ? '••••••••' 
+            value: isSecretField(key) && field.value
+              ? '••••••••'
               : field.value
           };
           return fields;
         }, {})
       }))
     };
-    
+
     res.json(maskedSettings);
   } catch (error) {
     logger.error('Error getting shipping settings:', error);
@@ -170,7 +170,7 @@ const createDefaultShippingSettings = async () => {
     freeShippingThreshold: 500,
     enableInternationalShipping: false
   };
-  
+
   return await ShippingConfig.create(defaultSettings);
 };
 
@@ -188,10 +188,10 @@ const isSecretField = (fieldName: string): boolean => {
 export const updateShippingSettings = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const settings = req.body;
-    
+
     // Update or create settings in the database
     let config = await ShippingConfig.findOne();
-    
+
     if (config) {
       // Update existing settings
       config.aggregators = settings.aggregators;
@@ -200,17 +200,17 @@ export const updateShippingSettings = async (req: AuthRequest, res: Response): P
       config.defaultShippingCost = settings.defaultShippingCost;
       config.freeShippingThreshold = settings.freeShippingThreshold;
       config.enableInternationalShipping = settings.enableInternationalShipping;
-      
+
       await config.save();
     } else {
       // Create new settings if none exist
       config = await ShippingConfig.create(settings);
     }
-    
+
     // Initialize shipping service with the new settings
     const enabledAggregators = settings.aggregators.filter((agg: IShippingAggregator) => agg.enabled);
     shippingService.initializeProviders(enabledAggregators, settings.defaultAggregator);
-    
+
     // Mask sensitive values before returning
     const maskedSettings = {
       ...config.toObject(),
@@ -219,17 +219,17 @@ export const updateShippingSettings = async (req: AuthRequest, res: Response): P
         configFields: Object.entries(aggregator.configFields).reduce((fields: any, [key, field]: [string, any]) => {
           fields[key] = {
             ...field,
-            value: isSecretField(key) && field.value 
-              ? '••••••••' 
+            value: isSecretField(key) && field.value
+              ? '••••••••'
               : field.value
           };
           return fields;
         }, {})
       }))
     };
-    
+
     // Return success
-    res.json({ 
+    res.json({
       success: true,
       message: 'Shipping settings updated successfully',
       settings: maskedSettings
@@ -246,12 +246,12 @@ export const updateShippingSettings = async (req: AuthRequest, res: Response): P
 export const getShippingRates = async (req: Request, res: Response): Promise<void> => {
   try {
     const request = req.body as ShippingRequest;
-    
+
     if (!request.pickupPincode || !request.deliveryPincode) {
       res.status(400).json({ error: 'Pickup and delivery pincodes are required' });
       return;
     }
-    
+
     // Get rates from all providers or a specific provider
     let rates;
     if (req.query.provider) {
@@ -279,12 +279,12 @@ export const getShippingRates = async (req: Request, res: Response): Promise<voi
 export const createShipment = async (req: Request, res: Response): Promise<void> => {
   try {
     const { providerId, service, request } = req.body;
-    
+
     if (!providerId || !service || !request) {
       res.status(400).json({ error: 'Provider ID, service, and request details are required' });
       return;
     }
-    
+
     const result = await shippingService.createShipment(providerId, request, service);
     res.json(result);
   } catch (error) {
@@ -299,12 +299,12 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 export const trackShipment = async (req: Request, res: Response): Promise<void> => {
   try {
     const { providerId, trackingId } = req.params;
-    
+
     if (!providerId || !trackingId) {
       res.status(400).json({ error: 'Provider ID and tracking ID are required' });
       return;
     }
-    
+
     const trackingInfo = await shippingService.trackShipment(providerId, trackingId);
     res.json(trackingInfo);
   } catch (error) {
@@ -319,14 +319,14 @@ export const trackShipment = async (req: Request, res: Response): Promise<void> 
 export const cancelShipment = async (req: Request, res: Response): Promise<void> => {
   try {
     const { providerId, trackingId } = req.params;
-    
+
     if (!providerId || !trackingId) {
       res.status(400).json({ error: 'Provider ID and tracking ID are required' });
       return;
     }
-    
+
     const success = await shippingService.cancelShipment(providerId, trackingId);
-    
+
     if (success) {
       res.json({ success: true, message: 'Shipment cancelled successfully' });
     } else {
@@ -345,12 +345,12 @@ export const testShippingProvider = async (req: Request, res: Response): Promise
   try {
     const { providerId } = req.params;
     const { config } = req.body;
-    
+
     if (!providerId) {
       res.status(400).json({ success: false, message: 'Provider ID is required' });
       return;
     }
-    
+
     // If config is not provided, try to get it from the database
     let providerConfig = config;
     if (!providerConfig) {
@@ -359,23 +359,23 @@ export const testShippingProvider = async (req: Request, res: Response): Promise
         res.status(400).json({ success: false, message: 'Shipping configuration not found' });
         return;
       }
-      
+
       const aggregator = shippingConfig.aggregators.find(agg => agg.id === providerId);
       if (!aggregator) {
         res.status(400).json({ success: false, message: 'Provider not found in configuration' });
         return;
       }
-      
+
       // Convert config fields to simple key-value pairs
       providerConfig = {};
       for (const [key, field] of Object.entries(aggregator.configFields)) {
         providerConfig[key] = field.value;
       }
     }
-    
+
     // Create appropriate provider instance based on providerId
     let provider: ShippingAggregatorProvider | null = null;
-    
+
     switch (providerId) {
       case 'shiprocket':
         provider = new ShiprocketProvider(providerConfig);
@@ -390,16 +390,16 @@ export const testShippingProvider = async (req: Request, res: Response): Promise
         res.status(400).json({ success: false, message: 'Invalid provider ID' });
         return;
     }
-    
+
     // Check if provider is configured correctly
     if (!provider.isConfigured()) {
-      res.status(400).json({ 
-        success: false, 
-        message: 'Provider is not properly configured. Please check all required fields.' 
+      res.status(400).json({
+        success: false,
+        message: 'Provider is not properly configured. Please check all required fields.'
       });
       return;
     }
-    
+
     // Create a test shipping request for checking rates
     const testRequest: ShippingRequest = {
       orderId: `test-${Date.now()}`,
@@ -427,11 +427,11 @@ export const testShippingProvider = async (req: Request, res: Response): Promise
         }
       ]
     };
-    
+
     try {
       // Attempt to get rates to verify API connection
       const rates = await provider.getRates(testRequest);
-      
+
       // Return success with some sample rates
       res.json({
         success: true,
@@ -444,9 +444,9 @@ export const testShippingProvider = async (req: Request, res: Response): Promise
       });
     } catch (error) {
       logger.error(`Error testing ${providerId} connection:`, error);
-      res.status(400).json({ 
-        success: false, 
-        message: `Failed to connect to ${providerId}: ${(error as Error).message}` 
+      res.status(400).json({
+        success: false,
+        message: `Failed to connect to ${providerId}: ${(error as Error).message}`
       });
     }
   } catch (error) {
@@ -462,12 +462,12 @@ export const processWebhook = async (req: Request, res: Response): Promise<void>
   try {
     const { providerId } = req.params;
     const webhookData = req.body;
-    
+
     if (!providerId) {
       res.status(400).json({ error: 'Provider ID is required' });
       return;
     }
-    
+
     // Optional shared-secret verification (simple, per-project)
     const providerSecrets: Record<string, string | undefined> = {
       shiprocket: process.env.SHIPROCKET_WEBHOOK_SECRET,
@@ -482,39 +482,39 @@ export const processWebhook = async (req: Request, res: Response): Promise<void>
         return;
       }
     }
-    
+
     // Get provider instance
     const shippingConfig = await ShippingConfig.findOne();
     if (!shippingConfig) {
       res.status(404).json({ error: 'Shipping configuration not found' });
       return;
     }
-    
+
     const aggregator = shippingConfig.aggregators.find(agg => agg.id === providerId);
     if (!aggregator) {
       res.status(404).json({ error: 'Provider not found in configuration' });
       return;
     }
-    
+
     if (!aggregator.enabled) {
       res.status(400).json({ error: 'Provider is not enabled' });
       return;
     }
-    
+
     // Convert config fields to simple key-value pairs
     const providerConfig: Record<string, string> = {};
     for (const [key, field] of Object.entries(aggregator.configFields)) {
       providerConfig[key] = field.value as string;
     }
-    
+
     // Add webhook URL if configured
     if (aggregator.webhookUrl) {
       providerConfig.webhookUrl = aggregator.webhookUrl;
     }
-    
+
     // Create appropriate provider instance
     let provider: ShippingAggregatorProvider | null = null;
-    
+
     switch (providerId) {
       case 'shiprocket':
         provider = new ShiprocketProvider(providerConfig);
@@ -529,7 +529,7 @@ export const processWebhook = async (req: Request, res: Response): Promise<void>
         res.status(400).json({ error: 'Invalid provider ID' });
         return;
     }
-    
+
     // Provider-specific logging (non-blocking)
     try { provider.processWebhookEvent(webhookData); } catch (e) { logger.warn('Provider webhook handler error (non-fatal)', e); }
 
@@ -608,17 +608,17 @@ export const createReturnShipment = async (req: Request, res: Response): Promise
   try {
     const { providerId, trackingId } = req.params;
     const returnRequest = req.body;
-    
+
     if (!providerId || !trackingId) {
       res.status(400).json({ error: 'Provider ID and tracking ID are required' });
       return;
     }
-    
+
     if (!returnRequest) {
       res.status(400).json({ error: 'Return shipment details are required' });
       return;
     }
-    
+
     // Create a return shipment
     const result = await shippingService.createReturnShipment(providerId, trackingId, returnRequest);
     res.json(result);
@@ -634,12 +634,12 @@ export const createReturnShipment = async (req: Request, res: Response): Promise
 export const getPickupLocations = async (req: Request, res: Response): Promise<void> => {
   try {
     const { providerId } = req.params;
-    
+
     if (!providerId) {
       res.status(400).json({ error: 'Provider ID is required' });
       return;
     }
-    
+
     const locations = await shippingService.getPickupLocations(providerId);
     res.json(locations);
   } catch (error) {
@@ -655,24 +655,24 @@ export const createPickupLocation = async (req: Request, res: Response): Promise
   try {
     const { providerId } = req.params;
     const locationData = req.body;
-    
+
     if (!providerId) {
       res.status(400).json({ error: 'Provider ID is required' });
       return;
     }
-    
+
     if (!locationData) {
       res.status(400).json({ error: 'Pickup location details are required' });
       return;
     }
-    
+
     const result = await shippingService.createPickupLocation(providerId, locationData);
-    
+
     if (!result) {
       res.status(400).json({ error: 'Failed to create pickup location' });
       return;
     }
-    
+
     res.json(result);
   } catch (error) {
     logger.error('Error creating pickup location:', error);
@@ -686,13 +686,13 @@ export const createPickupLocation = async (req: Request, res: Response): Promise
 export const getShippingAnalytics = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // const period = req.query.period as string || '30d'; // Will be used when implementing real analytics
-    
+
     // Get all orders with shipments in the given period
     // This would typically be fetched from the database or calculated from shipping data
-    
+
     // For demo purposes, we're returning mock data here
     // In a real implementation, this would query orders and shipments from the database
-    
+
     const result = {
       totalShipments: 125,
       pendingShipments: 15,
@@ -710,7 +710,7 @@ export const getShippingAnalytics = async (req: AuthRequest, res: Response): Pro
         { id: '3', orderId: 'ORD12347', trackingId: 'TRK12347', provider: 'Shipyaari', status: 'Pending', createdAt: '2023-06-03T09:15:00Z' }
       ]
     };
-    
+
     res.json(result);
   } catch (error) {
     logger.error('Error getting shipping analytics:', error);

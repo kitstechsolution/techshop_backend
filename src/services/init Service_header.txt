@@ -1,0 +1,8 @@
+import ShippingConfig from '../models/ShippingConfig.js';
+import shippingService from './shipping/index.js';
+import { logger } from '../utils/logger.js';
+
+/**
+ * Initialize shipping configuration
+ */
+export const initializeShipping = async (): Promise<void> => {

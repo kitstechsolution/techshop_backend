@@ -2,13 +2,13 @@ import { Request, Response } from 'express';
 import ShippingConfig from '../models/ShippingConfig.js';
 import { Order } from '../models/Order.js';
 import { logger } from '../utils/logger.js';
-import shippingService, { testShippingProvider } from '../services/ShippingService.js';
+import shippingService, { testShippingProvider } from '../services/shipping/index.js';
 
 // Get shipping configuration
 export const getShippingConfig = async (req: Request, res: Response): Promise<void> => {
   try {
     const config = await ShippingConfig.findOne();
-    
+
     if (!config) {
       // Return a default configuration if none exists
       res.status(200).json({
@@ -133,7 +133,7 @@ export const getShippingConfig = async (req: Request, res: Response): Promise<vo
       });
       return;
     }
-    
+
     res.status(200).json(config);
   } catch (error) {
     logger.error('Error fetching shipping configuration:', error);
@@ -146,7 +146,7 @@ export const updateShippingConfig = async (req: Request, res: Response): Promise
   try {
     const configData = req.body;
     let config = await ShippingConfig.findOne();
-    
+
     if (!config) {
       // Create new config if none exists
       config = new ShippingConfig(configData);
@@ -166,7 +166,7 @@ export const updateShippingConfig = async (req: Request, res: Response): Promise
         (config as any).selectionStrategy = configData.selectionStrategy;
       }
     }
-    
+
     await config.save();
 
     // Initialize runtime providers with the new configuration
@@ -185,22 +185,22 @@ export const testShippingConnection = async (req: Request, res: Response): Promi
   try {
     const { providerId } = req.params;
     const configFields = req.body;
-    
+
     // Validate the provider ID
     if (!['shiprocket', 'shipway', 'shipyaari'].includes(providerId)) {
       res.status(400).json({ success: false, message: 'Invalid provider ID' });
       return;
     }
-    
+
     // Validate required config fields
     if (!configFields) {
       res.status(400).json({ success: false, message: 'Configuration fields are required' });
       return;
     }
-    
+
     // Call the service to test the shipping provider
     const result = await testShippingProvider(providerId, configFields);
-    
+
     if (result.success) {
       res.status(200).json({
         success: true,
@@ -215,9 +215,9 @@ export const testShippingConnection = async (req: Request, res: Response): Promi
     }
   } catch (error) {
     logger.error('Error testing shipping connection:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error instanceof Error ? error.message : 'Failed to test shipping connection' 
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to test shipping connection'
     });
   }
 };

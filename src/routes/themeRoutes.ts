@@ -6,7 +6,6 @@ import {
   getCustomThemes,
   getCustomThemeById,
   createCustomTheme,
-  updateCustomTheme,
   deleteCustomTheme,
   duplicateCustomTheme,
   getThemeHistory,
@@ -34,7 +33,6 @@ router.post('/admin/apply', adminAuth, applyTheme);
 router.get('/admin/custom', adminAuth, getCustomThemes);
 router.get('/admin/custom/:id', adminAuth, getCustomThemeById);
 router.post('/admin/custom', adminAuth, createCustomTheme);
-router.put('/admin/custom/:id', adminAuth, updateCustomTheme);
 router.delete('/admin/custom/:id', adminAuth, deleteCustomTheme);
 
 // Theme operations
