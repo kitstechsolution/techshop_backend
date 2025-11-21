@@ -38,6 +38,7 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
       featured,
       isNew,
       tags,
+      onSale,
       sort = 'newest',
       page = '1',
       limit = '20'
@@ -51,11 +52,11 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
     const filter: any = {};
 
     if (category) {
-      filter.category = category;
+      filter.category = Array.isArray(category) ? { $in: category } : category;
     }
 
     if (subcategory) {
-      filter.subcategory = subcategory;
+      filter.subcategory = Array.isArray(subcategory) ? { $in: subcategory } : subcategory;
     }
 
     // Price range filter
@@ -89,6 +90,14 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
     if (tags) {
       const tagArray = (tags as string).split(',').map(t => t.trim());
       filter.tags = { $in: tagArray };
+    }
+
+    // On Sale filter
+    if (onSale === 'true') {
+      filter.$or = [
+        { discount: { $gt: 0 } },
+        { 'badges.type': 'sale' }
+      ];
     }
 
     // Determine sort order
@@ -304,7 +313,7 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
     }
 
     const product = await Product.findById(id);
-    
+
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
@@ -465,7 +474,7 @@ export const getProductBySlug = async (req: Request, res: Response): Promise<voi
     const { slug } = req.params;
 
     const product = await Product.findOne({ slug });
-    
+
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
@@ -495,15 +504,15 @@ export const getBestSellers = async (req: Request, res: Response): Promise<void>
     }
 
     const products = await Product.find(filter)
-      .sort({ 
-        totalReviews: -1, 
+      .sort({
+        totalReviews: -1,
         averageRating: -1,
-        createdAt: -1 
+        createdAt: -1
       })
       .limit(limitNum)
       .lean();
 
-    res.json({ 
+    res.json({
       success: true,
       products,
       count: products.length
@@ -530,7 +539,7 @@ export const getRelatedProducts = async (req: Request, res: Response): Promise<v
 
     // Get the original product
     const product = await Product.findById(id);
-    
+
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
@@ -541,7 +550,7 @@ export const getRelatedProducts = async (req: Request, res: Response): Promise<v
     const relatedProducts = await Product.find({
       _id: { $ne: product._id }, // Exclude the current product
       $or: [
-        { 
+        {
           category: product.category,
           tags: { $in: product.tags || [] }
         },
@@ -554,11 +563,11 @@ export const getRelatedProducts = async (req: Request, res: Response): Promise<v
         }
       ]
     })
-    .sort({ averageRating: -1 })
-    .limit(limitNum)
-    .lean();
+      .sort({ averageRating: -1 })
+      .limit(limitNum)
+      .lean();
 
-    res.json({ 
+    res.json({
       success: true,
       products: relatedProducts,
       count: relatedProducts.length
@@ -584,8 +593,8 @@ export const getRecommendations = async (req: Request, res: Response): Promise<v
         .sort({ totalReviews: -1, averageRating: -1 })
         .limit(limitNum)
         .lean();
-      
-      res.json({ 
+
+      res.json({
         success: true,
         products,
         count: products.length,
@@ -623,7 +632,7 @@ export const getRecommendations = async (req: Request, res: Response): Promise<v
       const purchasedProducts = await Product.find({
         _id: { $in: purchasedProductIds }
       }).select('category').lean();
-      
+
       purchasedProducts.forEach(p => {
         if (p.category && !categoryPreferences.includes(p.category.toString())) {
           categoryPreferences.push(p.category.toString());
@@ -648,7 +657,7 @@ export const getRecommendations = async (req: Request, res: Response): Promise<v
 
     // Get recommended products
     const recommendations = await Product.find(recommendationFilter)
-      .sort({ 
+      .sort({
         averageRating: -1,
         totalReviews: -1,
         createdAt: -1
@@ -656,7 +665,7 @@ export const getRecommendations = async (req: Request, res: Response): Promise<v
       .limit(limitNum)
       .lean();
 
-    res.json({ 
+    res.json({
       success: true,
       products: recommendations,
       count: recommendations.length,
@@ -687,7 +696,7 @@ export const checkAvailability = async (req: Request, res: Response): Promise<vo
     }
 
     const product = await Product.findById(id).select('name stock price');
-    
+
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
@@ -702,10 +711,10 @@ export const checkAvailability = async (req: Request, res: Response): Promise<vo
       stock: product.stock,
       requested: requestedQuantity,
       maxAvailable,
-      message: available 
+      message: available
         ? `${requestedQuantity} units available`
         : `Only ${maxAvailable} units available`,
-      estimatedRestock: !available && product.stock === 0 
+      estimatedRestock: !available && product.stock === 0
         ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days from now
         : null
     });
@@ -728,7 +737,7 @@ export const getProductVariants = async (req: Request, res: Response): Promise<v
     }
 
     const product = await Product.findById(id).select('name variants options');
-    
+
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
@@ -775,7 +784,7 @@ export const trackProductView = async (req: Request, res: Response): Promise<voi
     }
 
     const product = await Product.findById(id);
-    
+
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
@@ -817,9 +826,9 @@ export const isInWishlist = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const wishlist = await Wishlist.findOne({ 
+    const wishlist = await Wishlist.findOne({
       user: userId,
-      products: id 
+      products: id
     });
 
     res.json({
