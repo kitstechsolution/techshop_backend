@@ -34,11 +34,13 @@ import paymentSettingsRoutes from './routes/paymentSettingsRoutes.js';
 import cartRoutes from './routes/cartRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
+import imageRoutes from './routes/imageRoutes.js';
 import { logger } from './utils/logger.js';
 import ShippingConfig from './models/ShippingConfig.js';
 import { apiLimiter, publicLimiter, authLimiter, adminLimiter } from './middleware/rateLimiter.js';
 import { verifyEmailConfig } from './services/emailService.js';
 import { initializeShipping } from './services/initService.js';
+import { startImageCleanup } from './services/imageCleanupService.js';
 
 // Create Express app
 const app = express();
@@ -57,8 +59,13 @@ initializeShipping().catch(err => {
   logger.warn('Shipping initialization failed (will be initialized after admin saves settings):', err?.message || err);
 });
 
+// Start image cleanup scheduler
+startImageCleanup();
+
 // Security & core middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(mongoSanitize());
 
 const allowedOrigins = [
@@ -106,7 +113,7 @@ app.use('/api/', apiLimiter);
 
 // Test route
 app.get('/api/test', (_req: Request, res: Response): void => {
-  res.json({ 
+  res.json({
     message: 'Backend is running successfully!',
     timestamp: new Date().toISOString(),
     environment: server.nodeEnv
@@ -117,10 +124,10 @@ app.get('/api/test', (_req: Request, res: Response): void => {
 app.get('/api/debug/shipping/config', async (req: Request, res: Response): Promise<void> => {
   try {
     logger.info('Debug shipping config route accessed');
-    
+
     // Check if shipping config exists in the database
     const config = await ShippingConfig.findOne();
-    
+
     res.json({
       message: 'Debug shipping config route is working',
       timestamp: new Date().toISOString(),
@@ -143,7 +150,7 @@ app.get('/api/debug/shipping/config', async (req: Request, res: Response): Promi
     });
   } catch (error) {
     logger.error('Error in debug shipping config route:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Error in debug endpoint',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -190,9 +197,16 @@ app.use('/api/payment-settings', paymentSettingsRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/images', imageRoutes);
 
-// Serve uploaded files
-app.use('/uploads', express.static('uploads'));
+// Serve uploaded files with CORS enabled
+app.use('/uploads', express.static('uploads', {
+  setHeaders: (res: Response) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  }
+}));
 
 // Not found route
 app.use('*', (req: Request, res: Response) => {
@@ -201,7 +215,7 @@ app.use('*', (req: Request, res: Response) => {
 });
 
 // Error handling middleware
- 
+
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   logger.error('Unhandled error:', err);
   res.status(500).json({ error: 'Something went wrong' });

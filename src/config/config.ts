@@ -160,6 +160,13 @@ export const shipping = {
   weightMultiplier: getNumberEnv('WEIGHT_SHIPPING_MULTIPLIER', 10),
 };
 
+// Image Cleanup Configuration
+export const imageCleanup = {
+  enabled: getBooleanEnv('IMAGE_CLEANUP_ENABLED', true),
+  retentionHours: getNumberEnv('IMAGE_CLEANUP_RETENTION_HOURS', 24),
+  schedule: getEnv('IMAGE_CLEANUP_SCHEDULE', '0 * * * *'), // Hourly
+};
+
 // The complete config object combining all values
 const config = {
   server,
@@ -170,6 +177,7 @@ const config = {
   storage,
   product,
   shipping,
+  imageCleanup,
 };
 
-export default config; 
+export default config;
