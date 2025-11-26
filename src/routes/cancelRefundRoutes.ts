@@ -11,8 +11,9 @@ import { auth } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(auth);
+// Apply authentication only to this module's paths to avoid affecting other /api routes
+router.use('/cancel-requests', auth);
+router.use('/refund-requests', auth);
 
 /**
  * @route   POST /api/cancel-requests

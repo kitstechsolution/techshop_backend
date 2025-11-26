@@ -7,7 +7,7 @@ import { Request, Response } from 'express';
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per windowMs (increased)
+  max: 5000, // Limit each IP to 5000 requests per windowMs (increased for dev)
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
@@ -25,7 +25,7 @@ export const apiLimiter = rateLimit({
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per windowMs (slightly relaxed)
+  max: 100, // Limit each IP to 100 requests per windowMs (relaxed for dev)
   skipSuccessfulRequests: true, // Don't count successful requests
   message: 'Too many authentication attempts, please try again later.',
   standardHeaders: true,
@@ -45,7 +45,7 @@ export const authLimiter = rateLimit({
  */
 export const publicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Increased for public endpoints to reduce 429s under normal client load
+  max: 5000, // Increased for public endpoints to reduce 429s under normal client load
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -63,7 +63,7 @@ export const publicLimiter = rateLimit({
  */
 export const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 2000, // Higher limit for admin users (increased)
+  max: 5000, // Higher limit for admin users (increased)
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,

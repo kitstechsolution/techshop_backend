@@ -21,6 +21,7 @@ const router = express.Router();
 // These routes allow the frontend to fetch theme data for display
 router.get('/active', getActiveTheme);
 router.get('/presets', getPresetThemes);
+router.get('/custom', getCustomThemes); // Public access to custom themes
 
 // Admin routes (protected with authentication middleware)
 // Theme settings

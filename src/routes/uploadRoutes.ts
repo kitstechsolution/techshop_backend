@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { v2 as cloudinary } from 'cloudinary';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import { Readable } from 'stream';
 import { protect, admin } from '../middleware/auth.js';
 import { uploadLimiter } from '../middleware/rateLimiter.js';
 import { server, storage as storageCfg } from '../config/config.js';
@@ -19,6 +19,7 @@ if (storageCfg.provider === 'cloudinary') {
     cloud_name: storageCfg.cloudinaryCloudName,
     api_key: storageCfg.cloudinaryApiKey,
     api_secret: storageCfg.cloudinaryApiSecret,
+    secure: true,
   });
 }
 
@@ -29,19 +30,7 @@ const imagesDir = path.join(uploadsRoot, 'images');
 let uploadStorage: any;
 
 if (storageCfg.provider === 'cloudinary') {
-  // Cloudinary storage
-  uploadStorage = new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: async (_req: any, file: any) => {
-      const publicId = `products/${uuidv4()}`;
-      return {
-        folder: 'ecommerce',
-        public_id: publicId,
-        allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'],
-        transformation: [{ width: 1600, crop: 'limit' }],
-      };
-    },
-  });
+  uploadStorage = multer.memoryStorage();
 } else {
   // Local disk storage
   fs.mkdirSync(imagesDir, { recursive: true });
@@ -137,12 +126,23 @@ router.post(
         let cloudinaryPublicId: string | undefined;
 
         if (storageCfg.provider === 'cloudinary') {
-          const url = anyReq.file.path;
-          cloudinaryPublicId = anyReq.file.filename;
+          const publicId = `products/${uuidv4()}`;
+          const result: any = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+              { folder: 'ecommerce', public_id: publicId, transformation: [{ width: 1600, crop: 'limit' }] },
+              (err: any, uploaded: any) => (err ? reject(err) : resolve(uploaded))
+            );
+            const readable = new Readable();
+            readable._read = () => {};
+            readable.push(anyReq.file.buffer);
+            readable.push(null);
+            readable.pipe(stream);
+          });
+          cloudinaryPublicId = result.public_id || undefined;
           responseData = {
-            url,
-            absoluteUrl: url,
-            thumbnail: url,
+            url: result.secure_url,
+            absoluteUrl: result.secure_url,
+            thumbnail: result.secure_url,
             provider: 'cloudinary'
           };
         } else {
@@ -174,11 +174,7 @@ router.post(
         return res.status(201).json(responseData);
       } catch (e: any) {
         if (storageCfg.provider === 'cloudinary') {
-          return res.status(201).json({
-            url: anyReq.file.path,
-            absoluteUrl: anyReq.file.path,
-            provider: 'cloudinary'
-          });
+          return res.status(500).json({ message: 'Upload failed' });
         } else {
           const relPath = `/uploads/images/${anyReq.file.filename}`;
           const absolute = `${server.baseUrl.replace(/\/$/, '')}${relPath}`;

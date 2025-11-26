@@ -95,7 +95,7 @@ export const updateUserRole = async (req: AuthRequest, res: Response): Promise<v
 // Product Management
 export const createProduct = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, description, price, imageUrl, category, subcategory, stock } = req.body;
+    const { name, description, price, imageUrl, images, category, subcategory, stock } = req.body;
     
     // Ensure correct category formatting
     let formattedCategory = category;
@@ -110,7 +110,8 @@ export const createProduct = async (req: AuthRequest, res: Response): Promise<vo
       name,
       description,
       price,
-      imageUrl,
+      imageUrl: imageUrl || (Array.isArray(images) && images.length > 0 ? images[0] : ''),
+      images: Array.isArray(images) ? images : undefined,
       category: formattedCategory,
       subcategory,
       stock
@@ -127,7 +128,7 @@ export const createProduct = async (req: AuthRequest, res: Response): Promise<vo
 export const updateProduct = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const updates = Object.keys(req.body);
-    const allowedUpdates = ['name', 'description', 'price', 'imageUrl', 'category', 'subcategory', 'stock'];
+    const allowedUpdates = ['name', 'description', 'price', 'imageUrl', 'images', 'category', 'subcategory', 'stock'];
     
     const isValidOperation = updates.every(update => allowedUpdates.includes(update));
     if (!isValidOperation) {
