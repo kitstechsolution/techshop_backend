@@ -9,6 +9,8 @@ SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
 SECRETS_SCAN_OMIT_KEYS = "NODE_ENV"
 SECRETS_SCAN_ENABLED="false"
 LOCAL_STORAGE_DIR = "/tmp/uploads"
+CORS_ORIGINS = "https://radiant-sprinkles-7f7917.netlify.app"
+ALLOW_ALL_ORIGINS = "false"
 
 [functions]
 node_bundler = "esbuild"

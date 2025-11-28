@@ -70,11 +70,9 @@ app.use(helmet({
 }));
 app.use(mongoSanitize());
 
-const allowedOrigins = [
-  server.corsOrigin,
-  'http://localhost:3000',
-  'http://localhost:5173',
-].filter(Boolean);
+const allowedOrigins = (server as any).corsOrigins && (server as any).corsOrigins.length
+  ? (server as any).corsOrigins
+  : [server.corsOrigin].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {

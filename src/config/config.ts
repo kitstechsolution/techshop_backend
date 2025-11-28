@@ -54,6 +54,10 @@ export const server = {
   apiVersion: getEnv('API_VERSION', 'v1'),
   baseUrl: getEnv('BASE_URL', 'http://localhost:5000'),
   corsOrigin: getEnv('CORS_ORIGIN', 'http://localhost:5173'),
+  corsOrigins: getEnv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:3000')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean),
   allowAllOrigins: getBooleanEnv('ALLOW_ALL_ORIGINS', false),
   trustedProxies: getEnv('TRUSTED_PROXIES', '127.0.0.1,::1').split(','),
   rateLimitRequests: getNumberEnv('RATE_LIMIT_REQUESTS', 100),
