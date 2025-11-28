@@ -9,6 +9,8 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: 'user' | 'admin';
+  avatar?: string; // Avatar URL (local path or Cloudinary URL)
+  avatarCloudinaryId?: string; // Cloudinary public ID for deletion
   addresses: Array<{
     fullName: string;
     phone: string;
@@ -50,6 +52,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['user', 'admin'],
     default: 'user',
+  },
+  avatar: {
+    type: String,
+  },
+  avatarCloudinaryId: {
+    type: String,
   },
   addresses: [{
     fullName: {
@@ -94,7 +102,7 @@ const userSchema = new mongoose.Schema({
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
 
   try {
@@ -111,12 +119,12 @@ userSchema.pre('save', async function(next) {
 });
 
 // Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
+userSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
 // Virtual for full name
-userSchema.virtual('name').get(function() {
+userSchema.virtual('name').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 

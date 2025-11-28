@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
 import { connectDB } from './config/database.js';
-import { server } from './config/config.js';
+import { server, storage } from './config/config.js';
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import productRoutes from './routes/productRoutes.js';
@@ -45,6 +45,7 @@ import { startImageCleanup } from './services/imageCleanupService.js';
 
 // Create Express app
 const app = express();
+app.disable('x-powered-by');
 
 // Connect to MongoDB
 connectDB();
@@ -202,7 +203,7 @@ app.use('/api/uploads', uploadRoutes);
 app.use('/api/images', imageRoutes);
 
 // Serve uploaded files with CORS enabled
-app.use('/uploads', express.static('uploads', {
+app.use('/uploads', express.static(storage.localDir, {
   setHeaders: (res: Response) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');

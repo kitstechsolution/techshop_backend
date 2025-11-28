@@ -5,6 +5,21 @@ import { Wishlist } from '../models/Wishlist.js';
 import { logger } from '../utils/logger.js';
 import path from 'path';
 import fs from 'fs';
+import { storage as storageCfg } from '../config/config.js';
+import { v2 as cloudinary } from 'cloudinary';
+import { Readable } from 'stream';
+import { v4 as uuidv4 } from 'uuid';
+import UploadedImage from '../models/UploadedImage.js';
+
+// Configure Cloudinary if using cloud storage
+if (storageCfg.provider === 'cloudinary') {
+  cloudinary.config({
+    cloud_name: storageCfg.cloudinaryCloudName,
+    api_key: storageCfg.cloudinaryApiKey,
+    api_secret: storageCfg.cloudinaryApiSecret,
+    secure: true,
+  });
+}
 
 interface AuthRequest extends Request {
   user?: { _id: string };
@@ -18,7 +33,7 @@ interface AuthRequest extends Request {
 export const getAddresses = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -45,7 +60,7 @@ export const addAddress = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -75,7 +90,7 @@ export const addAddress = async (req: AuthRequest, res: Response): Promise<void>
 
     await user.save();
 
-    res.status(201).json({ 
+    res.status(201).json({
       address: user.addresses[user.addresses.length - 1],
       message: 'Address added successfully'
     });
@@ -95,14 +110,14 @@ export const updateAddress = async (req: AuthRequest, res: Response): Promise<vo
     const updates = req.body;
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
     const address = (user.addresses as any).id(addressId);
-    
+
     if (!address) {
       res.status(404).json({ error: 'Address not found' });
       return;
@@ -124,7 +139,7 @@ export const updateAddress = async (req: AuthRequest, res: Response): Promise<vo
 
     await user.save();
 
-    res.json({ 
+    res.json({
       address,
       message: 'Address updated successfully'
     });
@@ -143,7 +158,7 @@ export const deleteAddress = async (req: AuthRequest, res: Response): Promise<vo
     const { addressId } = req.params;
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -184,14 +199,14 @@ export const setDefaultAddress = async (req: AuthRequest, res: Response): Promis
     const { addressId } = req.params;
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
     const address = (user.addresses as any).id(addressId);
-    
+
     if (!address) {
       res.status(404).json({ error: 'Address not found' });
       return;
@@ -207,7 +222,7 @@ export const setDefaultAddress = async (req: AuthRequest, res: Response): Promis
 
     await user.save();
 
-    res.json({ 
+    res.json({
       address,
       message: 'Default address updated successfully'
     });
@@ -224,7 +239,7 @@ export const setDefaultAddress = async (req: AuthRequest, res: Response): Promis
 export const getNotificationPreferences = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -255,7 +270,7 @@ export const updateNotificationPreferences = async (req: AuthRequest, res: Respo
     const { orderUpdates, promotions, newsletter, sms } = req.body;
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -271,7 +286,7 @@ export const updateNotificationPreferences = async (req: AuthRequest, res: Respo
     (user as any).notificationPreferences = preferences;
     await user.save();
 
-    res.json({ 
+    res.json({
       preferences,
       message: 'Notification preferences updated successfully'
     });
@@ -327,28 +342,122 @@ export const uploadAvatar = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
+    let avatarUrl: string;
+    let cloudinaryPublicId: string | undefined;
+
     // Delete old avatar if exists
-    if ((user as any).avatar) {
-      const oldAvatarPath = path.join(process.cwd(), 'uploads', 'avatars', path.basename((user as any).avatar));
-      if (fs.existsSync(oldAvatarPath)) {
-        fs.unlinkSync(oldAvatarPath);
+    if (user.avatar) {
+      if (storageCfg.provider === 'cloudinary' && user.avatarCloudinaryId) {
+        // Delete from Cloudinary
+        try {
+          await cloudinary.uploader.destroy(user.avatarCloudinaryId);
+          logger.info(`Deleted old avatar from Cloudinary: ${user.avatarCloudinaryId}`);
+        } catch (error) {
+          logger.error('Error deleting old avatar from Cloudinary:', error);
+        }
+      } else if (storageCfg.provider === 'local') {
+        // Delete from local filesystem
+        const oldAvatarPath = path.join(storageCfg.localDir || 'uploads', 'avatars', path.basename(user.avatar));
+        if (fs.existsSync(oldAvatarPath)) {
+          try {
+            fs.unlinkSync(oldAvatarPath);
+            logger.info(`Deleted old avatar from local: ${oldAvatarPath}`);
+          } catch (error) {
+            logger.error('Error deleting old avatar from local:', error);
+          }
+        }
+      }
+    }
+
+    // Upload based on provider
+    if (storageCfg.provider === 'cloudinary') {
+      // Upload to Cloudinary
+      const publicId = `avatars/${uuidv4()}`;
+      const result: any = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'ecommerce/avatars',
+            public_id: publicId,
+            transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }]
+          },
+          (err: any, uploaded: any) => (err ? reject(err) : resolve(uploaded))
+        );
+        const readable = new Readable();
+        readable._read = () => { };
+        readable.push(req.file!.buffer);
+        readable.push(null);
+        readable.pipe(stream);
+      });
+
+      avatarUrl = result.secure_url;
+      cloudinaryPublicId = result.public_id;
+
+      // Track uploaded image
+      try {
+        await UploadedImage.create({
+          url: avatarUrl,
+          filename: req.file.originalname,
+          provider: 'cloudinary',
+          uploadedBy: req.user!._id,
+          size: req.file.size,
+          mimeType: req.file.mimetype,
+          cloudinaryId: cloudinaryPublicId,
+          isUsed: true,
+          usedIn: [{
+            model: 'User',
+            documentId: user._id,
+            field: 'avatar'
+          }],
+          markedForDeletion: false,
+          deletionScheduledAt: null,
+        });
+      } catch (trackingError) {
+        logger.error('Failed to create upload tracking record:', trackingError);
+      }
+    } else {
+      // Local storage
+      avatarUrl = `/uploads/avatars/${req.file.filename}`;
+
+      // Track uploaded image
+      try {
+        await UploadedImage.create({
+          url: `${storageCfg.localDir || 'uploads'}/avatars/${req.file.filename}`,
+          filename: req.file.originalname,
+          provider: 'local',
+          uploadedBy: req.user!._id,
+          size: req.file.size,
+          mimeType: req.file.mimetype,
+          isUsed: true,
+          usedIn: [{
+            model: 'User',
+            documentId: user._id,
+            field: 'avatar'
+          }],
+          markedForDeletion: false,
+          deletionScheduledAt: null,
+        });
+      } catch (trackingError) {
+        logger.error('Failed to create upload tracking record:', trackingError);
       }
     }
 
     // Save new avatar URL
-    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
-    (user as any).avatar = avatarUrl;
+    user.avatar = avatarUrl;
+    if (cloudinaryPublicId) {
+      user.avatarCloudinaryId = cloudinaryPublicId;
+    }
     await user.save();
 
-    res.json({ 
+    res.json({
       url: avatarUrl,
-      message: 'Avatar uploaded successfully'
+      message: 'Avatar uploaded successfully',
+      provider: storageCfg.provider
     });
   } catch (error) {
     logger.error('Error uploading avatar:', error);
@@ -370,7 +479,7 @@ export const deleteAccount = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     const user = await User.findById(req.user?._id);
-    
+
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -384,10 +493,26 @@ export const deleteAccount = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Delete user's avatar if exists
-    if ((user as any).avatar) {
-      const avatarPath = path.join(process.cwd(), 'uploads', 'avatars', path.basename((user as any).avatar));
-      if (fs.existsSync(avatarPath)) {
-        fs.unlinkSync(avatarPath);
+    if (user.avatar) {
+      if (storageCfg.provider === 'cloudinary' && user.avatarCloudinaryId) {
+        // Delete from Cloudinary
+        try {
+          await cloudinary.uploader.destroy(user.avatarCloudinaryId);
+          logger.info(`Deleted avatar from Cloudinary during account deletion: ${user.avatarCloudinaryId}`);
+        } catch (error) {
+          logger.error('Error deleting avatar from Cloudinary:', error);
+        }
+      } else if (storageCfg.provider === 'local') {
+        // Delete from local filesystem
+        const avatarPath = path.join(storageCfg.localDir || 'uploads', 'avatars', path.basename(user.avatar));
+        if (fs.existsSync(avatarPath)) {
+          try {
+            fs.unlinkSync(avatarPath);
+            logger.info(`Deleted avatar from local during account deletion: ${avatarPath}`);
+          } catch (error) {
+            logger.error('Error deleting avatar from local:', error);
+          }
+        }
       }
     }
 

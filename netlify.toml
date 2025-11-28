@@ -1,0 +1,19 @@
+[build]
+command = "npm run build"
+functions = "netlify/functions"
+
+[build.environment]
+NPM_CONFIG_PRODUCTION = "false"
+NODE_VERSION = "20"
+SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+SECRETS_SCAN_OMIT_KEYS = "NODE_ENV"
+SECRETS_SCAN_ENABLED="false"
+LOCAL_STORAGE_DIR = "/tmp/uploads"
+
+[functions]
+node_bundler = "esbuild"
+
+[[redirects]]
+from = "/api/*"
+to = "/.netlify/functions/api/:splat"
+status = 200

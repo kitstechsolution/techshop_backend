@@ -30,9 +30,10 @@ const imagesDir = path.join(uploadsRoot, 'images');
 let uploadStorage: any;
 
 if (storageCfg.provider === 'cloudinary') {
+  // Use memory storage for cloudinary - no local folders needed
   uploadStorage = multer.memoryStorage();
 } else {
-  // Local disk storage
+  // Local disk storage - create folders only for local storage
   fs.mkdirSync(imagesDir, { recursive: true });
 
   uploadStorage = multer.diskStorage({
@@ -133,7 +134,7 @@ router.post(
               (err: any, uploaded: any) => (err ? reject(err) : resolve(uploaded))
             );
             const readable = new Readable();
-            readable._read = () => {};
+            readable._read = () => { };
             readable.push(anyReq.file.buffer);
             readable.push(null);
             readable.pipe(stream);
