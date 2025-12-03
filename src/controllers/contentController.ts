@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { ContentSettings } from '../models/ContentSettings.js';
+import { server } from '../config/config.js';
 
 const sseClients: Response[] = [];
 
@@ -192,7 +193,13 @@ export const getLastModified = async (req: Request, res: Response) => {
 };
 
 export const streamContentUpdates = async (req: Request, res: Response) => {
-    try {
+  try {
+        const origin = req.headers.origin as string | undefined;
+        const allowed = server.allowAllOrigins || (!!origin && ([server.corsOrigin, ...(server as any).corsOrigins || []].includes(origin)));
+        if (origin && allowed) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+        }
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');

@@ -15,8 +15,8 @@ export const connectDB = async (): Promise<void> => {
 
   while (attemptsLeft >= 0) {
     try {
-  logger.info(`Attempting MongoDB connect to ${uri} (attempt ${database.reconnectTries - attemptsLeft + 1})`);
-  await mongoose.connect(uri, database.options as ConnectOptions);
+      logger.info(`Attempting MongoDB connect to ${uri} (attempt ${database.reconnectTries - attemptsLeft + 1})`);
+      await mongoose.connect(uri, database.options as ConnectOptions);
       logger.info('MongoDB connected successfully');
       return;
     } catch (error) {
@@ -29,6 +29,5 @@ export const connectDB = async (): Promise<void> => {
     }
   }
 
-  logger.error('MongoDB connection failed after multiple attempts. Please check MONGODB_URI and that MongoDB is reachable.');
-  process.exit(1);
+  logger.error('MongoDB connection failed after multiple attempts. Continuing without DB connection.');
 };

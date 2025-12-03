@@ -36,6 +36,7 @@ import cartRoutes from './routes/cartRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import imageRoutes from './routes/imageRoutes.js';
+import healthRoutes from './routes/healthRoutes.js';
 import { logger } from './utils/logger.js';
 import ShippingConfig from './models/ShippingConfig.js';
 import { apiLimiter, publicLimiter, authLimiter, adminLimiter } from './middleware/rateLimiter.js';
@@ -167,6 +168,7 @@ app.get('/api/admin/test', (req: Request, res: Response): void => {
 });
 
 // Routes
+app.use('/api/health', healthRoutes);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes);
 app.use('/api/products', publicLimiter, productRoutes);
@@ -219,6 +221,18 @@ app.use('*', (req: Request, res: Response) => {
 
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   logger.error('Unhandled error:', err);
+
+  const origin = req.headers.origin as string | undefined;
+  const origins = (server as any).corsOrigins && (server as any).corsOrigins.length
+    ? (server as any).corsOrigins
+    : [server.corsOrigin].filter(Boolean);
+  const allowed = server.allowAllOrigins || (!!origin && origins.includes(origin));
+  if (origin && allowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
+
   res.status(500).json({ error: 'Something went wrong' });
 });
 

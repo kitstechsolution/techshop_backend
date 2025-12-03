@@ -53,10 +53,10 @@ export const server = {
   isProd: getEnv('NODE_ENV', 'development') === 'production',
   apiVersion: getEnv('API_VERSION', 'v1'),
   baseUrl: getEnv('BASE_URL', 'http://localhost:5000'),
-  corsOrigin: getEnv('CORS_ORIGIN', 'http://localhost:5173'),
+  corsOrigin: getEnv('CORS_ORIGIN', 'http://localhost:5173').replace(/\/$/, ''),
   corsOrigins: getEnv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:3000')
     .split(',')
-    .map(s => s.trim())
+    .map(s => s.trim().replace(/\/$/, ''))
     .filter(Boolean),
   allowAllOrigins: getBooleanEnv('ALLOW_ALL_ORIGINS', false),
   trustedProxies: getEnv('TRUSTED_PROXIES', '127.0.0.1,::1').split(','),
